@@ -1,4 +1,4 @@
-import { Menu, Notice, Plugin, TFile, setIcon, setTooltip } from "obsidian";
+import { App, Menu, Modal, Notice, Plugin, Setting, TFile, setIcon, setTooltip } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	TaskToolsSettings,
@@ -261,6 +261,8 @@ export default class TaskToolsPlugin extends Plugin {
 	}
 
 	onunload() {}
+
+
 
 	async loadSettings() {
 		this.settings = Object.assign(
@@ -627,6 +629,64 @@ export default class TaskToolsPlugin extends Plugin {
 		this.positionChainBar();
 	}
 
+	private renderEmptyChainBar(el: HTMLElement): void {
+		if (this.settings.chains.length === 0) {
+			// State A — no schemas at all: offer to create one
+			const iconEl = el.createSpan({ cls: "chain-sb-chain-icon" });
+			setIcon(iconEl, "link");
+			setTooltip(el, "Start a chain", { delay: 0 });
+			const addBtn = el.createSpan({ cls: "chain-sb-add-btn chain-sb-add-btn--start" });
+			setIcon(addBtn, "plus");
+			addBtn.addEventListener("click", async (e) => {
+				e.stopPropagation();
+				const file = this.app.workspace.getActiveFile();
+				new CreateChainModal(this.app, async (name) => {
+					const slug =
+						name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "chain";
+					const schema: ChainDefinition = {
+						name,
+						idKey: slug,
+						positionKey: `${slug}-position`,
+						statusKey: `${slug}-status`,
+						currentStatusValue: "current",
+						completedStatusValue: "done",
+					};
+					this.settings.chains.push(schema);
+					await this.saveSettings();
+					if (file) {
+						await this.addFileToChain(file, schema);
+					} else {
+						new Notice("Chain created. Open a file and click + to add it.");
+					}
+				}).open();
+			});
+		} else {
+			// State B — schemas exist but no file is current yet
+			const iconEl = el.createSpan({ cls: "chain-sb-chain-icon" });
+			setIcon(iconEl, "link");
+			const label = this.settings.chains.length === 1
+				? this.settings.chains[0]!.name
+				: "Chains";
+			setTooltip(iconEl, label, { delay: 0 });
+			el.createSpan({ cls: "chain-sb-arrow", text: "→" });
+			const addBtn = el.createSpan({ cls: "chain-sb-add-btn" });
+			setIcon(addBtn, "plus");
+			setTooltip(addBtn, "Add active file to chain", { delay: 0 });
+			addBtn.addEventListener("click", async (e) => {
+				e.stopPropagation();
+				const file = this.app.workspace.getActiveFile();
+				if (!file) { new Notice("No active file."); return; }
+				if (this.settings.chains.length === 1 && this.settings.chains[0]) {
+					await this.addFileToChain(file, this.settings.chains[0]);
+				} else {
+					new ChainSuggestModal(this.app, this.settings.chains, async (chain) => {
+						await this.addFileToChain(file, chain);
+					}).open();
+				}
+			});
+		}
+	}
+
 	private renderChainBreadcrumb(): void {
 		if (!this.chainStatusBarItem) return;
 		const el = this.chainStatusBarItem;
@@ -639,7 +699,11 @@ export default class TaskToolsPlugin extends Plugin {
 		const chainsWithCurrent = this.settings.chains.filter(
 			(c) => this.findCurrentTask(c) !== undefined
 		);
-		if (chainsWithCurrent.length === 0) { this.positionChainBar(); return; }
+		if (chainsWithCurrent.length === 0) {
+			this.renderEmptyChainBar(el);
+			this.positionChainBar();
+			return;
+		}
 
 		const chain =
 			(statusBarChainIdKey
@@ -799,5 +863,55 @@ export default class TaskToolsPlugin extends Plugin {
 		});
 
 		this.positionChainBar();
+	}
+}
+
+class CreateChainModal extends Modal {
+	private onSubmit: (name: string) => Promise<void>;
+
+	constructor(app: App, onSubmit: (name: string) => Promise<void>) {
+		super(app);
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.createEl("h2", { text: "Create a chain" });
+		contentEl.createEl("p", {
+			text: "Give your chain a name. A chain groups related notes and tracks which one you're working on.",
+			cls: "chain-create-modal-desc",
+		});
+
+		let nameValue = "";
+
+		new Setting(contentEl)
+			.setName("Chain name")
+			.addText((text) => {
+				text.setPlaceholder("e.g. Project Alpha");
+				text.onChange((v) => { nameValue = v; });
+				// Focus after the modal DOM is ready
+				setTimeout(() => text.inputEl.focus(), 0);
+				text.inputEl.addEventListener("keydown", async (e: KeyboardEvent) => {
+					if (e.key === "Enter" && nameValue.trim()) {
+						this.close();
+						await this.onSubmit(nameValue.trim());
+					}
+				});
+			});
+
+		new Setting(contentEl).addButton((btn) =>
+			btn
+				.setButtonText("Create")
+				.setCta()
+				.onClick(async () => {
+					if (!nameValue.trim()) return;
+					this.close();
+					await this.onSubmit(nameValue.trim());
+				})
+		);
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
 	}
 }
