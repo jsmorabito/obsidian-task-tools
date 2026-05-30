@@ -16,11 +16,23 @@ export interface TaskToolsSettings {
 	chains: ChainDefinition[];
 }
 
+/** Convert a display name to a lowercase kebab-case slug, e.g. "My Chain" → "my-chain". */
+export function slugifyChainName(name: string): string {
+	return name
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+}
+
+/** Return the three auto-derived key names for a given chain slug. */
+export function derivedChainKeys(slug: string): { idKey: string; positionKey: string; statusKey: string } {
+	return { idKey: slug, positionKey: `${slug}-position`, statusKey: `${slug}-status` };
+}
+
 export const DEFAULT_CHAIN: ChainDefinition = {
 	name: "Project Chain",
-	idKey: "chain",
-	positionKey: "chain-position",
-	statusKey: "chain-status",
+	...derivedChainKeys(slugifyChainName("Project Chain")),
 	currentStatusValue: "current",
 	completedStatusValue: "done",
 };
@@ -179,11 +191,10 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 				.setButtonText("Add chain schema")
 				.setCta()
 				.onClick(async () => {
+					const newName = "New Chain";
 					this.plugin.settings.chains.push({
-						name: "New Chain",
-						idKey: "new-chain",
-						positionKey: "new-chain-position",
-						statusKey: "new-chain-status",
+						name: newName,
+						...derivedChainKeys(slugifyChainName(newName)),
 						currentStatusValue: "current",
 						completedStatusValue: "done",
 					});
@@ -229,7 +240,30 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 				);
 		};
 
-		make("Name", "Display name for this chain schema.", "name", "My Chain");
+		// Name field: auto-derives idKey/positionKey/statusKey unless they've been manually changed
+		new Setting(section)
+			.setName("Name")
+			.setDesc("Display name for this chain schema.")
+			.addText((text) =>
+				text
+					.setPlaceholder("My Chain")
+					.setValue(chain.name ?? "")
+					.onChange(async (value) => {
+						const c = this.plugin.settings.chains[idx];
+						if (!c) return;
+						const oldSlug = slugifyChainName(c.name ?? "");
+						const oldDerived = derivedChainKeys(oldSlug);
+						const newSlug = slugifyChainName(value);
+						const newDerived = derivedChainKeys(newSlug);
+						// Auto-update each key only if it still matches the old derived value
+						if (c.idKey === oldDerived.idKey) c.idKey = newDerived.idKey;
+						if (c.positionKey === oldDerived.positionKey) c.positionKey = newDerived.positionKey;
+						if (c.statusKey === oldDerived.statusKey) c.statusKey = newDerived.statusKey;
+						c.name = value.trim() || "New Chain";
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
 		make("ID key", "Frontmatter key that holds the chain identifier.", "idKey", "chain");
 		make("Position key", "Frontmatter key for the numeric position within the chain.", "positionKey", "chain-position");
 		make("Status key", "Frontmatter key for the task's status within this chain.", "statusKey", "chain-status");
