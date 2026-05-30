@@ -256,12 +256,14 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 						const newSlug = slugifyChainName(value);
 						const newDerived = derivedChainKeys(newSlug);
 						// Auto-update each key only if it still matches the old derived value
-						if (c.idKey === oldDerived.idKey) c.idKey = newDerived.idKey;
-						if (c.positionKey === oldDerived.positionKey) c.positionKey = newDerived.positionKey;
-						if (c.statusKey === oldDerived.statusKey) c.statusKey = newDerived.statusKey;
+						let derivedChanged = false;
+						if (c.idKey === oldDerived.idKey) { c.idKey = newDerived.idKey; derivedChanged = true; }
+						if (c.positionKey === oldDerived.positionKey) { c.positionKey = newDerived.positionKey; derivedChanged = true; }
+						if (c.statusKey === oldDerived.statusKey) { c.statusKey = newDerived.statusKey; derivedChanged = true; }
 						c.name = value.trim() || "New Chain";
 						await this.plugin.saveSettings();
-						this.display();
+						// Only re-render if derived keys changed (avoids scroll-to-top on every keystroke)
+						if (derivedChanged) this.display();
 					})
 			);
 		make("ID key", "Frontmatter key that holds the chain identifier.", "idKey", "chain");

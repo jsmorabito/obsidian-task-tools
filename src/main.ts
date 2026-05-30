@@ -835,6 +835,15 @@ export default class TaskToolsPlugin extends Plugin {
 								this.renderChainBreadcrumb();
 							})
 					);
+					menu.addItem((menuItem) =>
+						menuItem
+							.setTitle("Remove from chain")
+							.setIcon("x")
+							.onClick(async () => {
+								await this.removeFileFromChain(item.file, chain);
+								this.renderChainBreadcrumb();
+							})
+					);
 					menu.showAtMouseEvent(e);
 				});
 			} else {
@@ -902,6 +911,15 @@ export default class TaskToolsPlugin extends Plugin {
 							.setIcon("map-pin")
 							.onClick(async () => {
 								await this.setCurrentTask(item.file, chain);
+								this.renderChainBreadcrumb();
+							})
+					);
+					menu.addItem((menuItem) =>
+						menuItem
+							.setTitle("Remove from chain")
+							.setIcon("x")
+							.onClick(async () => {
+								await this.removeFileFromChain(item.file, chain);
 								this.renderChainBreadcrumb();
 							})
 					);
