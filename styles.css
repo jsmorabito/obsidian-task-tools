@@ -479,3 +479,24 @@
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
 }
+
+/* ── Chain multi-select modal ────────────────────────────────────────────── */
+
+.chain-multiselect-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+	cursor: pointer;
+}
+
+.chain-multiselect-row:last-of-type {
+	border-bottom: none;
+}
+
+.chain-multiselect-row label {
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+}

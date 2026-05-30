@@ -1,4 +1,4 @@
-import { App, Menu, Modal, Notice, Plugin, Setting, TFile, setIcon, setTooltip } from "obsidian";
+import { App, Menu, Modal, Notice, Plugin, Setting, TFile, setIcon, setTooltip, ButtonComponent } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	TaskToolsSettings,
@@ -258,6 +258,30 @@ export default class TaskToolsPlugin extends Plugin {
 				return true;
 			},
 		});
+
+		// Command: remove active file from chain
+		this.addCommand({
+			id: "remove-from-chain",
+			name: "Remove active file from chain…",
+			checkCallback: (checking: boolean) => {
+				const file = this.app.workspace.getActiveFile();
+				if (!file) return false;
+				const chains = this.getChainsForFile(file);
+				if (chains.length === 0) return false;
+				if (!checking) {
+					if (chains.length === 1 && chains[0]) {
+						void this.removeFileFromChain(file, chains[0]);
+					} else {
+						new ChainMultiSelectModal(this.app, chains, async (selected) => {
+							for (const chain of selected) {
+								await this.removeFileFromChain(file, chain);
+							}
+						}).open();
+					}
+				}
+				return true;
+			},
+		});
 	}
 
 	onunload() {}
@@ -370,17 +394,53 @@ export default class TaskToolsPlugin extends Plugin {
 		}
 		const nextPos = maxPos + 1;
 
+		// Check before writing — metadataCache won't reflect our write until the
+		// changed event fires, so reading it after processFrontMatter would race.
+		const shouldSetCurrent = !this.findCurrentTask(chain);
+
 		await this.app.fileManager.processFrontMatter(file, (front) => {
 			front[chain.idKey] = chainId;
 			front[chain.positionKey] = nextPos;
+			if (shouldSetCurrent) {
+				front[chain.statusKey] = chain.currentStatusValue;
+			}
 		});
 
-		// If the chain has no current task yet, set this file as current
-		if (!this.findCurrentTask(chain)) {
-			await this.setCurrentTask(file, chain);
+		if (!silent) new Notice(`Added "${file.basename}" to chain "${chainId}" at position ${nextPos}.`);
+	}
+
+	/**
+	 * Removes `file` from `chain` by deleting chain-related frontmatter keys.
+	 * If the file was the current task, promotes the next sibling before removal.
+	 */
+	async removeFileFromChain(file: TFile, chain: ChainDefinition): Promise<void> {
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		if (!fm || fm[chain.idKey] == null) {
+			new Notice(`"${file.basename}" is not in chain "${chain.name}".`);
+			return;
 		}
 
-		if (!silent) new Notice(`Added "${file.basename}" to chain "${chainId}" at position ${nextPos}.`);
+		const wasCurrent = fm[chain.statusKey] === chain.currentStatusValue;
+
+		if (wasCurrent) {
+			// Promote the next sibling before we strip the frontmatter
+			const items = this.buildChain(file, chain);
+			const currentItem = items.find((i) => i.file.path === file.path);
+			const next = currentItem
+				? items.filter((i) => i.order > currentItem.order).sort((a, b) => a.order - b.order)[0]
+				: undefined;
+			if (next) {
+				await this.setCurrentTask(next.file, chain);
+			}
+		}
+
+		await this.app.fileManager.processFrontMatter(file, (front) => {
+			delete front[chain.idKey];
+			delete front[chain.positionKey];
+			if (wasCurrent) delete front[chain.statusKey];
+		});
+
+		new Notice(`Removed "${file.basename}" from chain "${chain.name}".`);
 	}
 
 	/** Returns all files in a given chain via the index. */
@@ -863,6 +923,69 @@ export default class TaskToolsPlugin extends Plugin {
 		});
 
 		this.positionChainBar();
+	}
+}
+
+/**
+ * Multi-select modal for choosing one or more chains to remove a file from.
+ * Each chain is shown as a toggleable row; "Remove" confirms the selection.
+ */
+class ChainMultiSelectModal extends Modal {
+	private chains: ChainDefinition[];
+	private onConfirm: (selected: ChainDefinition[]) => Promise<void>;
+	private selected: Set<string> = new Set();
+
+	constructor(
+		app: App,
+		chains: ChainDefinition[],
+		onConfirm: (selected: ChainDefinition[]) => Promise<void>
+	) {
+		super(app);
+		this.chains = chains;
+		this.onConfirm = onConfirm;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.createEl("h2", { text: "Remove from chain" });
+		contentEl.createEl("p", {
+			text: "Select the chain(s) to remove this file from.",
+			cls: "chain-create-modal-desc",
+		});
+
+		const rows: { chain: ChainDefinition; row: HTMLElement }[] = [];
+
+		for (const chain of this.chains) {
+			const row = contentEl.createDiv({ cls: "chain-multiselect-row" });
+			const checkbox = row.createEl("input", { type: "checkbox" });
+			checkbox.id = `chain-ms-${chain.idKey}`;
+			row.createEl("label", { text: chain.name, attr: { for: checkbox.id } });
+			checkbox.addEventListener("change", () => {
+				if (checkbox.checked) this.selected.add(chain.idKey);
+				else this.selected.delete(chain.idKey);
+				confirmBtn.disabled = this.selected.size === 0;
+			});
+			rows.push({ chain, row });
+		}
+
+		let confirmBtn: HTMLButtonElement;
+		new Setting(contentEl)
+			.addButton((btn) => {
+				btn.setButtonText("Remove").setCta().setDisabled(true);
+				confirmBtn = btn.buttonEl;
+				btn.onClick(async () => {
+					const selected = this.chains.filter((c) => this.selected.has(c.idKey));
+					this.close();
+					await this.onConfirm(selected);
+				});
+			})
+			.addButton((btn) =>
+				btn.setButtonText("Cancel").onClick(() => this.close())
+			);
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
 	}
 }
 
