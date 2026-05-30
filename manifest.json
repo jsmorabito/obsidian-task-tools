@@ -1,11 +1,9 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
-	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"id": "obsidian-task-tools",
+	"name": "Task Tools",
+	"version": "0.1.0",
+	"minAppVersion": "1.13.0",
+	"description": "Manage tasks as notes organized into ordered chains. Supports multiple chains, cross-chain membership, and a meta-chain for personal sequencing across projects.",
+	"author": "John Morabito",
 	"isDesktopOnly": false
 }
