@@ -78,6 +78,8 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 
 	display(): void {
 		const { containerEl } = this;
+		const scrollEl = containerEl.closest(".vertical-tab-content") as HTMLElement | null;
+		const scrollTop = scrollEl?.scrollTop ?? 0;
 		containerEl.empty();
 
 		// ── Task file detection ──────────────────────────────────────────────
@@ -202,6 +204,8 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 					this.display();
 				})
 		);
+
+		if (scrollEl) scrollEl.scrollTop = scrollTop;
 	}
 
 	private renderChainSchema(
@@ -212,7 +216,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 		const section = containerEl.createEl("div", { cls: "chain-schema-section" });
 
 		const headerEl = section.createEl("div", { cls: "chain-schema-header" });
-		headerEl.createEl("h3", { text: chain.name || `Chain ${idx + 1}` });
+		const h3 = headerEl.createEl("h3", { text: chain.name || `Chain ${idx + 1}` });
 
 		const removeBtn = headerEl.createEl("button", {
 			text: "Remove",
@@ -224,11 +228,17 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			this.display();
 		});
 
+		// Refs to derived-key inputs so we can update them in-place when the name changes
+		let idKeyInput: HTMLInputElement | null = null;
+		let positionKeyInput: HTMLInputElement | null = null;
+		let statusKeyInput: HTMLInputElement | null = null;
+
 		const make = (name: string, desc: string, key: keyof ChainDefinition, placeholder: string) => {
+			let inputRef: HTMLInputElement | null = null;
 			new Setting(section)
 				.setName(name)
 				.setDesc(desc)
-				.addText((text) =>
+				.addText((text) => {
 					text
 						.setPlaceholder(placeholder)
 						.setValue((chain[key] as string | undefined) ?? "")
@@ -236,8 +246,12 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 							(this.plugin.settings.chains[idx] as unknown as Record<string, string | undefined>)[key] =
 								value.trim() || undefined;
 							await this.plugin.saveSettings();
-						})
-				);
+						});
+					inputRef = text.inputEl;
+				});
+			if (key === "idKey") idKeyInput = inputRef;
+			else if (key === "positionKey") positionKeyInput = inputRef;
+			else if (key === "statusKey") statusKeyInput = inputRef;
 		};
 
 		// Name field: auto-derives idKey/positionKey/statusKey unless they've been manually changed
@@ -255,14 +269,23 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 						const oldDerived = derivedChainKeys(oldSlug);
 						const newSlug = slugifyChainName(value);
 						const newDerived = derivedChainKeys(newSlug);
-						// Auto-update each key only if it still matches the old derived value
-						if (c.idKey === oldDerived.idKey) c.idKey = newDerived.idKey;
-						if (c.positionKey === oldDerived.positionKey) c.positionKey = newDerived.positionKey;
-						if (c.statusKey === oldDerived.statusKey) c.statusKey = newDerived.statusKey;
+						// Auto-update each key only if it still matches the old derived value; update inputs in-place
+						if (c.idKey === oldDerived.idKey) {
+							c.idKey = newDerived.idKey;
+							if (idKeyInput) idKeyInput.value = newDerived.idKey;
+						}
+						if (c.positionKey === oldDerived.positionKey) {
+							c.positionKey = newDerived.positionKey;
+							if (positionKeyInput) positionKeyInput.value = newDerived.positionKey;
+						}
+						if (c.statusKey === oldDerived.statusKey) {
+							c.statusKey = newDerived.statusKey;
+							if (statusKeyInput) statusKeyInput.value = newDerived.statusKey;
+						}
 						c.name = value.trim() || "New Chain";
+						// Update header in-place — no full re-render needed
+						h3.setText(c.name);
 						await this.plugin.saveSettings();
-						// Only re-render if the slug changed (avoids scroll-to-top on every keystroke)
-						if (newSlug !== oldSlug) this.display();
 					})
 			);
 		make("ID key", "Frontmatter key that holds the chain identifier.", "idKey", "chain");
