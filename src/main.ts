@@ -628,6 +628,7 @@ export default class TaskToolsPlugin extends Plugin {
 	}
 
 	private renderChainBreadcrumb(): void {
+		if (!this.chainStatusBarItem) return;
 		const el = this.chainStatusBarItem;
 		el.empty();
 
