@@ -3,6 +3,8 @@ import {
 	DEFAULT_SETTINGS,
 	TaskToolsSettings,
 	TaskToolsSettingTab,
+	derivedChainKeys,
+	slugifyChainName,
 } from "./settings";
 import { CHAIN_VIEW_TYPE, ChainView } from "./chainView";
 import { NewTaskModal } from "./newTaskModal";
@@ -701,13 +703,9 @@ export default class TaskToolsPlugin extends Plugin {
 				e.stopPropagation();
 				const file = this.app.workspace.getActiveFile();
 				new CreateChainModal(this.app, async (name) => {
-					const slug =
-						name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "chain";
 					const schema: ChainDefinition = {
 						name,
-						idKey: slug,
-						positionKey: `${slug}-position`,
-						statusKey: `${slug}-status`,
+						...derivedChainKeys(slugifyChainName(name) || "chain"),
 						currentStatusValue: "current",
 						completedStatusValue: "done",
 					};

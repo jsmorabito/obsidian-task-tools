@@ -27,7 +27,7 @@ export function slugifyChainName(name: string): string {
 
 /** Return the three auto-derived key names for a given chain slug. */
 export function derivedChainKeys(slug: string): { idKey: string; positionKey: string; statusKey: string } {
-	return { idKey: slug, positionKey: `${slug}-position`, statusKey: `${slug}-status` };
+	return { idKey: `${slug}-chain`, positionKey: `${slug}-chain-position`, statusKey: `${slug}-chain-status` };
 }
 
 export const DEFAULT_CHAIN: ChainDefinition = {
