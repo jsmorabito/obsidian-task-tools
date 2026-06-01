@@ -1,5 +1,5 @@
 import { AbstractInputSuggest, App, PluginSettingTab, Setting, TFile } from "obsidian";
-import type { ChainDefinition, FrontmatterRule } from "./types";
+import type { ChainDefinition, FrontmatterRule, LinearWorkspaceConfig } from "./types";
 import TaskToolsPlugin from "./main";
 
 export type StatusBarDisplayMode = "filenames" | "dots";
@@ -14,6 +14,11 @@ export interface TaskToolsSettings {
 	statusBarDotsCount: number; // max visible dots at a time
 	chainBarVisible: boolean;
 	chains: ChainDefinition[];
+	// Linear integration
+	linearWorkspaces: LinearWorkspaceConfig[];
+	linearSyncOnOpen: boolean;
+	linearSyncIntervalMinutes: number; // 0 = disabled
+	linearIssueFolder: string; // folder where imported issues are created
 }
 
 /** Convert a display name to a lowercase kebab-case slug, e.g. "My Chain" → "my-chain". */
@@ -47,6 +52,10 @@ export const DEFAULT_SETTINGS: TaskToolsSettings = {
 	statusBarDotsCount: 7,
 	chainBarVisible: true,
 	chains: [DEFAULT_CHAIN],
+	linearWorkspaces: [],
+	linearSyncOnOpen: true,
+	linearSyncIntervalMinutes: 0,
+	linearIssueFolder: "Linear",
 };
 
 class FileSuggest extends AbstractInputSuggest<TFile> {
@@ -205,6 +214,9 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 				})
 		);
 
+		// ── Linear integration ───────────────────────────────────────────────
+		this.renderLinearSettings(containerEl);
+
 		if (scrollEl) scrollEl.scrollTop = scrollTop;
 	}
 
@@ -326,6 +338,28 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 				});
 			});
 
+		// ── Linear workspace binding ─────────────────────────────────────────
+		section.createEl("p", {
+			text: "Linear (optional) — bind this chain to a specific Linear workspace. The Linear panel will default to that workspace when this chain is active.",
+			cls: "setting-item-description",
+		});
+
+		new Setting(section)
+			.setName("Linear workspace")
+			.setDesc("Restrict this chain's Linear panel to one workspace, or leave unset to allow mixed workspaces.")
+			.addDropdown((drop) => {
+				drop.addOption("", "— any workspace —");
+				for (const ws of this.plugin.settings.linearWorkspaces) {
+					drop.addOption(ws.id, ws.name);
+				}
+				drop.setValue(chain.linearWorkspaceId ?? "");
+				drop.onChange(async (value) => {
+					const c = this.plugin.settings.chains[idx];
+					if (c) c.linearWorkspaceId = value || undefined;
+					await this.plugin.saveSettings();
+				});
+			});
+
 		// ── Auto-populate ────────────────────────────────────────────────────
 		section.createEl("p", {
 			text: "Auto-populate (optional) — automatically add vault files that match frontmatter rules to this chain. Run via the 'Auto-populate chains' command.",
@@ -439,6 +473,217 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 				await this.plugin.saveSettings();
 				refresh();
 			}
+		});
+	}
+
+	// ── Linear settings ──────────────────────────────────────────────────────
+
+	private renderLinearSettings(containerEl: HTMLElement): void {
+		containerEl.createEl("h2", { text: "Linear integration" });
+
+		// Issue folder
+		new Setting(containerEl)
+			.setName("Issue folder")
+			.setDesc("Folder where imported Linear issues are created.")
+			.addText((text) =>
+				text
+					.setPlaceholder("Linear")
+					.setValue(this.plugin.settings.linearIssueFolder)
+					.onChange(async (value) => {
+						this.plugin.settings.linearIssueFolder = value.trim() || "Linear";
+						await this.plugin.saveSettings();
+					})
+			);
+
+		// Sync on open
+		new Setting(containerEl)
+			.setName("Sync on open")
+			.setDesc("Pull status updates from Linear when Obsidian opens.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.linearSyncOnOpen).onChange(async (value) => {
+					this.plugin.settings.linearSyncOnOpen = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
+		// Sync interval
+		new Setting(containerEl)
+			.setName("Auto-sync interval (minutes)")
+			.setDesc("Poll Linear for updates on this interval. Set to 0 to disable.")
+			.addSlider((slider) =>
+				slider
+					.setLimits(0, 120, 15)
+					.setValue(this.plugin.settings.linearSyncIntervalMinutes)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.plugin.settings.linearSyncIntervalMinutes = value;
+						await this.plugin.saveSettings();
+						this.plugin.rescheduleLinearSync();
+					})
+			);
+
+		containerEl.createEl("h3", { text: "Workspaces" });
+		containerEl.createEl("p", {
+			text: "Each workspace connects to one Linear organization. You can use a Personal API key (paste from Linear → Settings → API) or OAuth.",
+			cls: "setting-item-description",
+		});
+
+		const wsContainer = containerEl.createDiv({ cls: "linear-workspace-list" });
+		this.renderWorkspaceList(wsContainer);
+
+		new Setting(containerEl).addButton((btn) =>
+			btn
+				.setButtonText("Add workspace")
+				.setCta()
+				.onClick(async () => {
+					this.plugin.settings.linearWorkspaces.push({
+						id: `workspace-${Date.now()}`,
+						name: "New Workspace",
+						authType: "apiKey",
+					});
+					await this.plugin.saveSettings();
+					this.display();
+				})
+		);
+	}
+
+	private renderWorkspaceList(container: HTMLElement): void {
+		container.empty();
+		const workspaces = this.plugin.settings.linearWorkspaces;
+
+		if (workspaces.length === 0) {
+			container.createEl("p", {
+				cls: "setting-item-description",
+				text: "No workspaces configured yet.",
+			});
+			return;
+		}
+
+		workspaces.forEach((ws, idx) => {
+			const section = container.createDiv({ cls: "linear-workspace-section" });
+
+			const header = section.createDiv({ cls: "chain-schema-header" });
+			header.createEl("h4", { text: ws.name || `Workspace ${idx + 1}` });
+			const removeBtn = header.createEl("button", { text: "Remove", cls: "chain-schema-remove-btn" });
+			removeBtn.addEventListener("click", async () => {
+				this.plugin.settings.linearWorkspaces.splice(idx, 1);
+				await this.plugin.saveSettings();
+				this.plugin.linearManager?.refreshClients();
+				this.display();
+			});
+
+			// Workspace ID
+			new Setting(section)
+				.setName("ID")
+				.setDesc("Short slug used as the frontmatter key (e.g. \"acme\"). Cannot be changed after importing issues.")
+				.addText((text) =>
+					text
+						.setPlaceholder("acme")
+						.setValue(ws.id)
+						.onChange(async (value) => {
+							this.plugin.settings.linearWorkspaces[idx]!.id = value.trim() || ws.id;
+							await this.plugin.saveSettings();
+						})
+				);
+
+			// Display name
+			new Setting(section)
+				.setName("Name")
+				.setDesc("Display name shown in the Linear panel.")
+				.addText((text) =>
+					text
+						.setPlaceholder("Acme Corp")
+						.setValue(ws.name)
+						.onChange(async (value) => {
+							this.plugin.settings.linearWorkspaces[idx]!.name = value.trim() || "Workspace";
+							await this.plugin.saveSettings();
+						})
+				);
+
+			// Auth type
+			new Setting(section)
+				.setName("Auth type")
+				.setDesc("How to authenticate with this workspace.")
+				.addDropdown((drop) => {
+					drop.addOption("apiKey", "Personal API key");
+					drop.addOption("oauth", "OAuth");
+					drop.setValue(ws.authType);
+					drop.onChange(async (value) => {
+						this.plugin.settings.linearWorkspaces[idx]!.authType = value as "apiKey" | "oauth";
+						await this.plugin.saveSettings();
+						this.plugin.linearManager?.refreshClients();
+						this.display();
+					});
+				});
+
+			if (ws.authType === "apiKey") {
+				new Setting(section)
+					.setName("API key")
+					.setDesc("Personal API key from Linear → Settings → API.")
+					.addText((text) => {
+						text.inputEl.type = "password";
+						text
+							.setPlaceholder("lin_api_…")
+							.setValue(ws.apiKey ?? "")
+							.onChange(async (value) => {
+								this.plugin.settings.linearWorkspaces[idx]!.apiKey = value.trim() || undefined;
+								await this.plugin.saveSettings();
+								this.plugin.linearManager?.refreshClients();
+							});
+					});
+			} else {
+				// OAuth
+				const oauthSetting = new Setting(section)
+					.setName("OAuth")
+					.setDesc(
+						ws.oauthToken
+							? "Connected. Click to reconnect."
+							: "Not connected. Click to start the OAuth flow."
+					);
+				oauthSetting.addButton((btn) => {
+					btn.setButtonText(ws.oauthToken ? "Reconnect" : "Connect with Linear");
+					if (ws.oauthToken) btn.setWarning();
+					else btn.setCta();
+					btn.onClick(() => {
+						this.plugin.startLinearOAuth(ws.id);
+					});
+				});
+				if (ws.oauthToken) {
+					oauthSetting.addButton((btn) =>
+						btn
+							.setButtonText("Disconnect")
+							.setWarning()
+							.onClick(async () => {
+								this.plugin.settings.linearWorkspaces[idx]!.oauthToken = undefined;
+								this.plugin.settings.linearWorkspaces[idx]!.oauthRefreshToken = undefined;
+								await this.plugin.saveSettings();
+								this.plugin.linearManager?.refreshClients();
+								this.display();
+							})
+					);
+				}
+			}
+
+			// Verify connection button
+			new Setting(section).addButton((btn) =>
+				btn
+					.setButtonText("Test connection")
+					.onClick(async () => {
+						const client = this.plugin.linearManager?.getClient(ws.id);
+						if (!client) {
+							new (await import("obsidian")).Notice(
+								"No credentials configured for this workspace."
+							);
+							return;
+						}
+						try {
+							const name = await client.getOrganizationName();
+							new (await import("obsidian")).Notice(`Connected to "${name}" ✓`);
+						} catch (err) {
+							new (await import("obsidian")).Notice(`Connection failed: ${String(err)}`);
+						}
+					})
+			);
 		});
 	}
 }

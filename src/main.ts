@@ -11,11 +11,15 @@ import { NewTaskModal } from "./newTaskModal";
 import { ChainSuggestModal } from "./chainSuggestModal";
 import { ChainInstanceSuggestModal } from "./chainInstanceSuggestModal";
 import type { ChainDefinition, ChainItem, FrontmatterRule } from "./types";
+import { LinearManager } from "./linear/manager";
+import { LINEAR_VIEW_TYPE, LinearView } from "./linear/linearView";
 
 export default class TaskToolsPlugin extends Plugin {
 	settings: TaskToolsSettings;
+	linearManager: LinearManager | null = null;
 	private chainStatusBarItem: HTMLElement;
 	private statusBarObserver: ResizeObserver | null = null;
+	private linearSyncIntervalId: number | null = null;
 
 	/**
 	 * Index: key = "${idKey}::${chainId}", value = Set of file paths.
@@ -25,6 +29,20 @@ export default class TaskToolsPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
+
+		// ── Linear setup ────────────────────────────────────────────────────
+		this.linearManager = new LinearManager(
+			this.app,
+			() => this.settings,
+			() => this.saveSettings()
+		);
+		this.linearManager.refreshClients();
+
+		// Register Linear sidebar view
+		this.registerView(
+			LINEAR_VIEW_TYPE,
+			(leaf) => new LinearView(leaf, this, this.linearManager!)
+		);
 
 		// Build index once the workspace and metadata cache are fully ready,
 		// then re-render any chain views that opened before the index was populated.
@@ -104,6 +122,63 @@ export default class TaskToolsPlugin extends Plugin {
 		);
 
 		this.addSettingTab(new TaskToolsSettingTab(this.app, this));
+
+		// ── Linear sync on open ──────────────────────────────────────────────
+		this.app.workspace.onLayoutReady(() => {
+			if (this.settings.linearSyncOnOpen && this.linearManager?.getConfiguredWorkspaces().length) {
+				void this.linearManager.pullAll().then(({ updated }) => {
+					if (updated > 0) new Notice(`Linear: pulled ${updated} update${updated === 1 ? "" : "s"}.`);
+				});
+			}
+			this.rescheduleLinearSync();
+		});
+
+		// Command: open Linear panel
+		this.addCommand({
+			id: "open-linear-view",
+			name: "Open Linear panel",
+			callback: () => { void this.openLinearView(); },
+		});
+
+		// Command: sync Linear (manual pull)
+		this.addCommand({
+			id: "linear-sync",
+			name: "Linear: sync all linked notes",
+			callback: async () => {
+				if (!this.linearManager?.getConfiguredWorkspaces().length) {
+					new Notice("No Linear workspaces configured.");
+					return;
+				}
+				const { updated, errors } = await this.linearManager.pullAll();
+				const msg = errors > 0
+					? `Linear sync: ${updated} updated, ${errors} errors.`
+					: `Linear sync complete — ${updated} note${updated === 1 ? "" : "s"} updated.`;
+				new Notice(msg);
+			},
+		});
+
+		// Command: import active-file issue to Linear (push new issue)
+		this.addCommand({
+			id: "linear-push-issue",
+			name: "Linear: push status of active note",
+			checkCallback: (checking: boolean) => {
+				const file = this.app.workspace.getActiveFile();
+				if (!file || !this.linearManager?.isLinkedNote(file)) return false;
+				if (!checking) {
+					// Prompt for target state name via a simple Notice pattern
+					new LinearPushStateModal(this.app, async (stateName) => {
+						const ok = await this.linearManager!.pushStatusChange(file, stateName);
+						if (ok) new Notice(`Pushed status "${stateName}" to Linear.`);
+					}).open();
+				}
+				return true;
+			},
+		});
+
+		// Ribbon icon for Linear panel
+		this.addRibbonIcon("external-link", "Open Linear panel", () => {
+			void this.openLinearView();
+		});
 
 		// Command: new task (uses global task settings)
 		this.addCommand({
@@ -286,9 +361,57 @@ export default class TaskToolsPlugin extends Plugin {
 		});
 	}
 
-	onunload() {}
+	onunload() {
+		if (this.linearSyncIntervalId !== null) {
+			window.clearInterval(this.linearSyncIntervalId);
+		}
+	}
 
+	// ── Linear public methods ───────────────────────────────────────────────
 
+	async openLinearView(): Promise<void> {
+		const existing = this.app.workspace.getLeavesOfType(LINEAR_VIEW_TYPE);
+		const firstExisting = existing[0];
+		if (firstExisting) {
+			this.app.workspace.revealLeaf(firstExisting);
+			return;
+		}
+		const leaf = this.app.workspace.getRightLeaf(false);
+		if (leaf !== null) {
+			await leaf.setViewState({ type: LINEAR_VIEW_TYPE, active: true });
+			this.app.workspace.revealLeaf(leaf);
+		}
+	}
+
+	/** Start or restart the Linear polling interval based on current settings. */
+	rescheduleLinearSync(): void {
+		if (this.linearSyncIntervalId !== null) {
+			window.clearInterval(this.linearSyncIntervalId);
+			this.linearSyncIntervalId = null;
+		}
+		const mins = this.settings.linearSyncIntervalMinutes;
+		if (mins > 0 && this.linearManager) {
+			this.linearSyncIntervalId = window.setInterval(async () => {
+				const { updated } = await this.linearManager!.pullAll();
+				if (updated > 0) new Notice(`Linear: pulled ${updated} update${updated === 1 ? "" : "s"}.`);
+			}, mins * 60 * 1000);
+		}
+	}
+
+	/**
+	 * Start the OAuth flow for a workspace.
+	 * Opens Linear's authorize URL in the default browser.
+	 * The user pastes the code back — a full callback server is out of scope
+	 * for a desktop plugin, so we use a manual code-paste flow for now.
+	 */
+	startLinearOAuth(workspaceId: string): void {
+		new LinearOAuthModal(this.app, workspaceId, async (token) => {
+			await this.linearManager?.storeOAuthToken(workspaceId, token);
+			new Notice("Linear workspace connected.");
+			// Refresh settings UI
+			(this.app as any).setting?.display?.();
+		}).open();
+	}
 
 	async loadSettings() {
 		this.settings = Object.assign(
@@ -1053,4 +1176,98 @@ class CreateChainModal extends Modal {
 	onClose(): void {
 		this.contentEl.empty();
 	}
+}
+
+/**
+ * Prompt for a Linear state name to push to an issue.
+ */
+class LinearPushStateModal extends Modal {
+	private onSubmit: (stateName: string) => Promise<void>;
+
+	constructor(app: App, onSubmit: (stateName: string) => Promise<void>) {
+		super(app);
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.createEl("h2", { text: "Push status to Linear" });
+		contentEl.createEl("p", {
+			text: "Enter the Linear state name to apply to this issue (e.g. \"In Progress\", \"Done\").",
+			cls: "chain-create-modal-desc",
+		});
+
+		let value = "";
+
+		new Setting(contentEl)
+			.setName("State name")
+			.addText((text) => {
+				text.setPlaceholder("In Progress");
+				text.onChange((v) => { value = v; });
+				setTimeout(() => text.inputEl.focus(), 0);
+				text.inputEl.addEventListener("keydown", async (e: KeyboardEvent) => {
+					if (e.key === "Enter" && value.trim()) {
+						this.close();
+						await this.onSubmit(value.trim());
+					}
+				});
+			});
+
+		new Setting(contentEl).addButton((btn) =>
+			btn.setButtonText("Push").setCta().onClick(async () => {
+				if (!value.trim()) return;
+				this.close();
+				await this.onSubmit(value.trim());
+			})
+		);
+	}
+
+	onClose(): void { this.contentEl.empty(); }
+}
+
+/**
+ * OAuth flow modal — for now a manual token-paste approach.
+ * A future version can register a custom URI handler to receive the callback.
+ */
+class LinearOAuthModal extends Modal {
+	private workspaceId: string;
+	private onToken: (token: string) => Promise<void>;
+
+	constructor(app: App, workspaceId: string, onToken: (token: string) => Promise<void>) {
+		super(app);
+		this.workspaceId = workspaceId;
+		this.onToken = onToken;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.createEl("h2", { text: "Connect Linear workspace" });
+		contentEl.createEl("p", {
+			text: "For now, paste a Personal API key or an OAuth access token obtained from Linear. Full browser-based OAuth (one-click) will be added in a future update.",
+			cls: "chain-create-modal-desc",
+		});
+
+		let token = "";
+
+		new Setting(contentEl)
+			.setName("Access token")
+			.addText((text) => {
+				text.inputEl.type = "password";
+				text.setPlaceholder("lin_api_… or OAuth token");
+				text.onChange((v) => { token = v; });
+				setTimeout(() => text.inputEl.focus(), 0);
+			});
+
+		new Setting(contentEl).addButton((btn) =>
+			btn.setButtonText("Connect").setCta().onClick(async () => {
+				if (!token.trim()) return;
+				this.close();
+				await this.onToken(token.trim());
+			})
+		).addButton((btn) =>
+			btn.setButtonText("Cancel").onClick(() => this.close())
+		);
+	}
+
+	onClose(): void { this.contentEl.empty(); }
 }

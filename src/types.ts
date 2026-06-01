@@ -1,5 +1,44 @@
 import { TFile } from "obsidian";
 
+// ── Linear integration ─────────────────────────────────────────────────────
+
+export type LinearAuthType = "apiKey" | "oauth";
+
+export interface LinearWorkspaceConfig {
+	/** User-assigned slug, e.g. "acme" or "personal". Used as the key in frontmatter. */
+	id: string;
+	/** Display name shown in the UI. */
+	name: string;
+	authType: LinearAuthType;
+	/** Personal API key — used when authType === "apiKey". */
+	apiKey?: string;
+	/** OAuth access token — stored after completing the OAuth flow. */
+	oauthToken?: string;
+	/** OAuth refresh token — stored after completing the OAuth flow. */
+	oauthRefreshToken?: string;
+}
+
+export interface LinearIssueStub {
+	id: string;           // Linear UUID
+	identifier: string;   // e.g. "ENG-42"
+	title: string;
+	url: string;
+	stateName: string;
+	stateType: string;    // "backlog" | "unstarted" | "started" | "completed" | "cancelled"
+	priority: number;     // 0 = no priority, 1 = urgent, 2 = high, 3 = medium, 4 = low
+	teamId: string;
+	teamName: string;
+	workspaceId: string;  // maps to LinearWorkspaceConfig.id
+}
+
+export interface LinearTeam {
+	id: string;
+	name: string;
+	key: string;
+}
+
+// ── Existing types ─────────────────────────────────────────────────────────
+
 export interface FrontmatterRule {
 	key: string;
 	value?: string; // if omitted, matches any file that has the key
@@ -23,6 +62,8 @@ export interface ChainDefinition {
 	autoPopulateEnabled?: boolean;
 	autoPopulateInclude?: FrontmatterRule[]; // all rules must match
 	autoPopulateExclude?: FrontmatterRule[]; // any rule matching = file excluded
+	// Linear: when set, restricts the Linear panel to this workspace and defaults imports to it
+	linearWorkspaceId?: string;
 }
 
 export interface ChainItem {
