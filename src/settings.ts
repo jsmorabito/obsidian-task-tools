@@ -3,6 +3,7 @@ import type { ChainDefinition, FrontmatterRule, LinearWorkspaceConfig } from "./
 import TaskToolsPlugin from "./main";
 
 export type StatusBarDisplayMode = "filenames" | "dots";
+export type ChainBarPosition = "left" | "center" | "right";
 
 export interface TaskToolsSettings {
 	taskFrontmatterKey: string;
@@ -13,6 +14,7 @@ export interface TaskToolsSettings {
 	statusBarDisplayMode: StatusBarDisplayMode;
 	statusBarDotsCount: number; // max visible dots at a time
 	chainBarVisible: boolean;
+	chainBarPosition: ChainBarPosition;
 	chains: ChainDefinition[];
 	// Linear integration
 	linearWorkspaces: LinearWorkspaceConfig[];
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: TaskToolsSettings = {
 	statusBarDisplayMode: "filenames",
 	statusBarDotsCount: 7,
 	chainBarVisible: true,
+	chainBarPosition: "center",
 	chains: [DEFAULT_CHAIN],
 	linearWorkspaces: [],
 	linearSyncOnOpen: true,
@@ -185,6 +188,20 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			);
 
 		dotsCountSetting.settingEl.toggle(this.plugin.settings.statusBarDisplayMode === "dots");
+
+		new Setting(containerEl)
+			.setName("Chain bar position")
+			.setDesc("Where the chain breadcrumb bar appears at the bottom of the screen.")
+			.addDropdown((drop) => {
+				drop.addOption("left", "Left");
+				drop.addOption("center", "Center");
+				drop.addOption("right", "Right (next to status bar)");
+				drop.setValue(this.plugin.settings.chainBarPosition);
+				drop.onChange(async (value) => {
+					this.plugin.settings.chainBarPosition = value as ChainBarPosition;
+					await this.plugin.saveSettings();
+				});
+			});
 
 		// ── Chain schemas ────────────────────────────────────────────────────
 		containerEl.createEl("h2", { text: "Chain schemas" });

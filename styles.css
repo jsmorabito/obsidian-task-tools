@@ -3,7 +3,6 @@
 .chain-status-bar-item {
 	position: fixed;
 	bottom: 4px;
-	right: 0; /* overridden by JS */
 	z-index: var(--layer-status-bar, 10);
 	display: flex;
 	align-items: center;

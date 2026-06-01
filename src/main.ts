@@ -76,7 +76,7 @@ export default class TaskToolsPlugin extends Plugin {
 		// Chain breadcrumb — standalone div to the left of the status bar
 		this.chainStatusBarItem = document.body.createDiv({ cls: "chain-status-bar-item" });
 		this.chainStatusBarItem.style.cursor = "pointer";
-		setTooltip(this.chainStatusBarItem, "Click to switch chain", { delay: 0 });
+		setTooltip(this.chainStatusBarItem, "Click to switch chain", { delay: 0, placement: "top" });
 		this.chainStatusBarItem.addEventListener("click", () => {
 			this.openStatusBarChainPicker();
 		});
@@ -797,11 +797,28 @@ export default class TaskToolsPlugin extends Plugin {
 	}
 
 	private positionChainBar(): void {
-		const statusBar = document.querySelector<HTMLElement>(".status-bar");
-		if (!statusBar) return;
-		const rect = statusBar.getBoundingClientRect();
-		// 4px gap between chain bar and status bar
-		this.chainStatusBarItem.style.right = `${window.innerWidth - rect.left + 4}px`;
+		const el = this.chainStatusBarItem;
+		const position = this.settings.chainBarPosition ?? "center";
+
+		// Reset all positional properties before re-applying
+		// Use "auto" (not "") so we override the stylesheet's `right: 0` default
+		el.style.left = "auto";
+		el.style.right = "auto";
+		el.style.transform = "";
+
+		if (position === "right") {
+			const statusBar = document.querySelector<HTMLElement>(".status-bar");
+			if (!statusBar) return;
+			const rect = statusBar.getBoundingClientRect();
+			// 4px gap between chain bar and status bar
+			el.style.right = `${window.innerWidth - rect.left + 4}px`;
+		} else if (position === "center") {
+			el.style.left = "50%";
+			el.style.transform = "translateX(-50%)";
+		} else {
+			// left
+			el.style.left = "12px";
+		}
 	}
 
 	private setupStatusBarObserver(): void {
@@ -819,7 +836,7 @@ export default class TaskToolsPlugin extends Plugin {
 			// State A — no schemas at all: offer to create one
 			const iconEl = el.createSpan({ cls: "chain-sb-chain-icon" });
 			setIcon(iconEl, "link");
-			setTooltip(el, "Start a chain", { delay: 0 });
+			setTooltip(el, "Start a chain", { delay: 0, placement: "top" });
 			const addBtn = el.createSpan({ cls: "chain-sb-add-btn chain-sb-add-btn--start" });
 			setIcon(addBtn, "plus");
 			addBtn.addEventListener("click", async (e) => {
@@ -848,11 +865,11 @@ export default class TaskToolsPlugin extends Plugin {
 			const label = this.settings.chains.length === 1
 				? this.settings.chains[0]!.name
 				: "Chains";
-			setTooltip(iconEl, label, { delay: 0 });
+			setTooltip(iconEl, label, { delay: 0, placement: "top" });
 			el.createSpan({ cls: "chain-sb-arrow", text: "→" });
 			const addBtn = el.createSpan({ cls: "chain-sb-add-btn" });
 			setIcon(addBtn, "plus");
-			setTooltip(addBtn, "Add active file to chain", { delay: 0 });
+			setTooltip(addBtn, "Add active file to chain", { delay: 0, placement: "top" });
 			addBtn.addEventListener("click", async (e) => {
 				e.stopPropagation();
 				const file = this.app.workspace.getActiveFile();
@@ -903,7 +920,7 @@ export default class TaskToolsPlugin extends Plugin {
 		// Chain icon — shows chain name on hover, switches chain on click
 		const iconEl = el.createSpan({ cls: "chain-sb-chain-icon" });
 		setIcon(iconEl, "link");
-		setTooltip(iconEl, chain.name, { delay: 0 });
+		setTooltip(iconEl, chain.name, { delay: 0, placement: "top" });
 		iconEl.addEventListener("click", (e) => {
 			e.stopPropagation();
 			this.openStatusBarChainPicker();
@@ -938,7 +955,7 @@ export default class TaskToolsPlugin extends Plugin {
 					cls: "chain-sb-node chain-sb-node--current" + (isOpen ? "" : " is-away"),
 					text: item.file.basename,
 				});
-				setTooltip(node, item.file.basename, { delay: 0 });
+				setTooltip(node, item.file.basename, { delay: 0, placement: "top" });
 				node.addEventListener("click", async (e) => {
 					e.stopPropagation();
 					const leaf = this.app.workspace.getMostRecentLeaf();
@@ -972,7 +989,7 @@ export default class TaskToolsPlugin extends Plugin {
 					cls: `chain-sb-node chain-sb-node--${item.role}${isOpen ? " is-open" : ""}`,
 				});
 				if (item.role === "previous") setIcon(node, "check");
-				setTooltip(node, item.file.basename, { delay: 0 });
+				setTooltip(node, item.file.basename, { delay: 0, placement: "top" });
 
 				node.draggable = true;
 				node.addEventListener("dragstart", (e) => {
@@ -1053,7 +1070,7 @@ export default class TaskToolsPlugin extends Plugin {
 		el.createSpan({ cls: "chain-sb-arrow", text: "→" });
 		const addBtn = el.createSpan({ cls: "chain-sb-add-btn" });
 		setIcon(addBtn, "plus");
-		setTooltip(addBtn, "Add active file to chain", { delay: 0 });
+		setTooltip(addBtn, "Add active file to chain", { delay: 0, placement: "top" });
 		addBtn.addEventListener("click", async (e) => {
 			e.stopPropagation();
 			const file = this.app.workspace.getActiveFile();
