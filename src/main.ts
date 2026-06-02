@@ -278,6 +278,18 @@ export default class TaskToolsPlugin extends Plugin {
 			},
 		});
 
+		// Command: reconcile chain statuses (fix stale frontmatter)
+		this.addCommand({
+			id: "reconcile-chain-statuses",
+			name: "Reconcile chain statuses",
+			callback: async () => {
+				for (const chain of this.settings.chains) {
+					await this.reconcileChain(chain);
+				}
+				new Notice("Chain statuses reconciled.");
+			},
+		});
+
 		// Command: toggle chain bar
 		this.addCommand({
 			id: "toggle-chain-bar",
@@ -601,6 +613,112 @@ export default class TaskToolsPlugin extends Plugin {
 
 		await this.app.fileManager.processFrontMatter(file, (front) => {
 			front[chain.statusKey] = chain.currentStatusValue;
+			// clear ready flag if it was set
+		});
+	}
+
+	/**
+	 * Reconciles chain frontmatter so position is the source of truth.
+	 * Items before the current task get completedStatusValue; items after
+	 * lose any stale completedStatusValue (ready stays intact).
+	 */
+	async reconcileChain(chain: ChainDefinition): Promise<void> {
+		const currentTask = this.findCurrentTask(chain);
+		if (!currentTask) return;
+		const items = this.buildChain(currentTask, chain);
+		const readyVal = chain.readyStatusValue ?? "ready";
+		for (const item of items) {
+			await this.app.fileManager.processFrontMatter(item.file, (front) => {
+				if (item.role === "previous") {
+					front[chain.statusKey] = chain.completedStatusValue;
+				} else if (item.role === "current") {
+					front[chain.statusKey] = chain.currentStatusValue;
+				} else {
+					// next/ready: clear any stale done status
+					if (front[chain.statusKey] === chain.completedStatusValue) {
+						delete front[chain.statusKey];
+					}
+				}
+			});
+		}
+	}
+
+	/**
+	 * Sets an item's status and repositions it in the chain if needed.
+	 * - "done"  → moves before the current item
+	 * - "todo" or "ready" → moves to just after the current item (if currently before it)
+	 */
+	async setItemStatus(
+		file: TFile,
+		chain: ChainDefinition,
+		newStatus: "done" | "todo" | "ready"
+	): Promise<void> {
+		const currentTask = this.findCurrentTask(chain);
+		if (!currentTask) return;
+
+		const items = this.buildChain(currentTask, chain);
+		const currentItem = items.find((i) => i.role === "current");
+		const targetItem = items.find((i) => i.file.path === file.path);
+		if (!currentItem || !targetItem) return;
+
+		const needsReposition =
+			(newStatus === "done" && targetItem.role !== "previous") ||
+			((newStatus === "todo" || newStatus === "ready") && targetItem.role === "previous");
+
+		if (!needsReposition) {
+			// Just update the status in place
+			await this.app.fileManager.processFrontMatter(file, (front) => {
+				if (newStatus === "done") front[chain.statusKey] = chain.completedStatusValue;
+				else if (newStatus === "ready") front[chain.statusKey] = chain.readyStatusValue ?? "ready";
+				else delete front[chain.statusKey];
+			});
+			return;
+		}
+
+		// Reorder: remove item from current position, reinsert at target boundary
+		const without = items.filter((i) => i.file.path !== file.path);
+		const currentIdx = without.findIndex((i) => i.role === "current");
+
+		let insertAt: number;
+		if (newStatus === "done") {
+			// Insert just before current
+			insertAt = currentIdx;
+		} else {
+			// Insert just after current
+			insertAt = currentIdx + 1;
+		}
+
+		without.splice(insertAt, 0, targetItem);
+
+		// Write new positions and statuses
+		const readyVal = chain.readyStatusValue ?? "ready";
+		for (let i = 0; i < without.length; i++) {
+			const itm = without[i]!;
+			const isTarget = itm.file.path === file.path;
+			await this.app.fileManager.processFrontMatter(itm.file, (front) => {
+				front[chain.positionKey] = i + 1;
+				if (itm.role === "current") {
+					front[chain.statusKey] = chain.currentStatusValue;
+				} else if (isTarget) {
+					if (newStatus === "done") front[chain.statusKey] = chain.completedStatusValue;
+					else if (newStatus === "ready") front[chain.statusKey] = readyVal;
+					else delete front[chain.statusKey];
+				}
+				// Leave other items' statuses as-is; positions are updated above
+			});
+		}
+	}
+
+	async toggleReadyTask(file: TFile, chain: ChainDefinition): Promise<void> {
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const readyValue = chain.readyStatusValue ?? "ready";
+		const isAlreadyReady = fm?.[chain.statusKey] === readyValue;
+		await this.app.fileManager.processFrontMatter(file, (front) => {
+			if (isAlreadyReady) {
+				delete front[chain.statusKey];
+			} else {
+				front[chain.statusKey] = readyValue;
+			}
 		});
 	}
 
@@ -648,12 +766,15 @@ export default class TaskToolsPlugin extends Plugin {
 			if (isNaN(fileOrder)) continue;
 
 			const isCurrent = fm[chain.statusKey] === chain.currentStatusValue;
+			const isReady = fm[chain.statusKey] === (chain.readyStatusValue ?? "ready");
 
-			let role: "previous" | "current" | "next";
+			let role: "previous" | "current" | "ready" | "next";
 			if (isCurrent) {
 				role = "current";
 			} else if (fileOrder < currentOrder) {
 				role = "previous";
+			} else if (isReady) {
+				role = "ready";
 			} else {
 				role = "next";
 			}
@@ -848,6 +969,7 @@ export default class TaskToolsPlugin extends Plugin {
 						...derivedChainKeys(slugifyChainName(name) || "chain"),
 						currentStatusValue: "current",
 						completedStatusValue: "done",
+						readyStatusValue: "ready",
 					};
 					this.settings.chains.push(schema);
 					await this.saveSettings();
@@ -964,23 +1086,38 @@ export default class TaskToolsPlugin extends Plugin {
 				node.addEventListener("contextmenu", (e) => {
 					e.stopPropagation();
 					const menu = new Menu();
-					menu.addItem((menuItem) =>
-						menuItem
-							.setTitle("Advance chain")
-							.setIcon("arrow-right")
-							.onClick(async () => {
+					const nextItem = items[idx + 1];
+					if (nextItem) {
+						menu.addItem((mi) =>
+							mi.setTitle("Advance chain").setIcon("arrow-right").onClick(async () => {
 								await this.advanceChain(chain, item.file);
-								this.renderChainBreadcrumb();
 							})
+						);
+					}
+					if (item.role !== "ready") {
+						menu.addItem((mi) =>
+							mi.setTitle("Mark as ready").setIcon("check-circle").onClick(async () => {
+								await this.setItemStatus(item.file, chain, "ready");
+							})
+						);
+					}
+					menu.addItem((mi) =>
+						mi.setTitle("Mark as done").setIcon("check").onClick(async () => {
+							await this.setItemStatus(item.file, chain, "done");
+						})
 					);
-					menu.addItem((menuItem) =>
-						menuItem
-							.setTitle("Remove from chain")
-							.setIcon("x")
-							.onClick(async () => {
-								await this.removeFileFromChain(item.file, chain);
-								this.renderChainBreadcrumb();
+					if (item.role !== "next") {
+						menu.addItem((mi) =>
+							mi.setTitle("Mark as todo").setIcon("circle").onClick(async () => {
+								await this.setItemStatus(item.file, chain, "todo");
 							})
+						);
+					}
+					menu.addItem((mi) =>
+						mi.setTitle("Open file").setIcon("file-open").onClick(async () => {
+							const leaf = this.app.workspace.getMostRecentLeaf();
+							if (leaf) await leaf.openFile(item.file);
+						})
 					);
 					menu.showAtMouseEvent(e);
 				});
@@ -988,7 +1125,7 @@ export default class TaskToolsPlugin extends Plugin {
 				const node = el.createSpan({
 					cls: `chain-sb-node chain-sb-node--${item.role}${isOpen ? " is-open" : ""}`,
 				});
-				if (item.role === "previous") setIcon(node, "check");
+				if (item.role === "previous" || item.role === "ready") setIcon(node, "check");
 				setTooltip(node, item.file.basename, { delay: 0, placement: "top" });
 
 				node.draggable = true;
@@ -1043,23 +1180,39 @@ export default class TaskToolsPlugin extends Plugin {
 				node.addEventListener("contextmenu", (e) => {
 					e.stopPropagation();
 					const menu = new Menu();
-					menu.addItem((menuItem) =>
-						menuItem
-							.setTitle("Set as current task")
-							.setIcon("map-pin")
-							.onClick(async () => {
+					if (item.role !== "current") {
+						menu.addItem((mi) =>
+							mi.setTitle("Set as current").setIcon("map-pin").onClick(async () => {
 								await this.setCurrentTask(item.file, chain);
-								this.renderChainBreadcrumb();
 							})
-					);
-					menu.addItem((menuItem) =>
-						menuItem
-							.setTitle("Remove from chain")
-							.setIcon("x")
-							.onClick(async () => {
-								await this.removeFileFromChain(item.file, chain);
-								this.renderChainBreadcrumb();
+						);
+					}
+					if (item.role !== "ready") {
+						menu.addItem((mi) =>
+							mi.setTitle("Mark as ready").setIcon("check-circle").onClick(async () => {
+								await this.setItemStatus(item.file, chain, "ready");
 							})
+						);
+					}
+					if (item.role !== "previous") {
+						menu.addItem((mi) =>
+							mi.setTitle("Mark as done").setIcon("check").onClick(async () => {
+								await this.setItemStatus(item.file, chain, "done");
+							})
+						);
+					}
+					if (item.role !== "next") {
+						menu.addItem((mi) =>
+							mi.setTitle("Mark as todo").setIcon("circle").onClick(async () => {
+								await this.setItemStatus(item.file, chain, "todo");
+							})
+						);
+					}
+					menu.addItem((mi) =>
+						mi.setTitle("Open file").setIcon("file-open").onClick(async () => {
+							const leaf = this.app.workspace.getMostRecentLeaf();
+							if (leaf) await leaf.openFile(item.file);
+						})
 					);
 					menu.showAtMouseEvent(e);
 				});

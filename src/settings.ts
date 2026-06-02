@@ -42,6 +42,7 @@ export const DEFAULT_CHAIN: ChainDefinition = {
 	...derivedChainKeys(slugifyChainName("Project Chain")),
 	currentStatusValue: "current",
 	completedStatusValue: "done",
+	readyStatusValue: "ready",
 };
 
 export const DEFAULT_SETTINGS: TaskToolsSettings = {
@@ -225,6 +226,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 						...derivedChainKeys(slugifyChainName(newName)),
 						currentStatusValue: "current",
 						completedStatusValue: "done",
+						readyStatusValue: "ready",
 					});
 					await this.plugin.saveSettings();
 					this.display();

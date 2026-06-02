@@ -32,7 +32,7 @@
 	user-select: none;
 }
 
-/* Previous task — checkmark icon in a circle */
+/* Previous task (Done) — filled circle with checkmark */
 .chain-sb-node--previous {
 	display: flex;
 	align-items: center;
@@ -40,11 +40,12 @@
 	width: 16px;
 	height: 16px;
 	border-radius: 50%;
+	background-color: var(--text-faint);
 	border: 1.5px solid var(--text-faint);
-	color: var(--text-faint);
+	color: var(--background-primary);
 	cursor: pointer;
 	flex-shrink: 0;
-	transition: border-color 80ms ease, color 80ms ease;
+	transition: opacity 80ms ease;
 }
 
 .chain-sb-node--previous .svg-icon {
@@ -53,11 +54,35 @@
 }
 
 .chain-sb-node--previous:hover {
-	border-color: var(--text-accent);
-	color: var(--text-accent);
+	opacity: 0.8;
 }
 
-/* Next task — empty grey circle */
+/* Ready task — outline with checkmark */
+.chain-sb-node--ready {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background-color: transparent;
+	border: 1.5px solid var(--text-faint);
+	color: var(--text-faint);
+	cursor: pointer;
+	flex-shrink: 0;
+	transition: opacity 80ms ease;
+}
+
+.chain-sb-node--ready .svg-icon {
+	width: 10px;
+	height: 10px;
+}
+
+.chain-sb-node--ready:hover {
+	opacity: 0.8;
+}
+
+/* Next task (Todo) — outline only */
 .chain-sb-node--next {
 	display: flex;
 	align-items: center;
@@ -65,14 +90,16 @@
 	width: 16px;
 	height: 16px;
 	border-radius: 50%;
-	background-color: var(--background-modifier-border);
+	background-color: transparent;
+	border: 1.5px solid var(--text-faint);
 	cursor: pointer;
 	flex-shrink: 0;
-	transition: background-color 80ms ease;
+	transition: border-color 80ms ease;
 }
 
 .chain-sb-node--next:hover {
-	background-color: var(--text-muted);
+	border-color: var(--text-faint);
+	opacity: 0.8;
 }
 
 /* Add button */
@@ -182,13 +209,178 @@
 	gap: var(--size-4-1);
 }
 
+.chain-view-section-header-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0 var(--size-4-1);
+}
+
 .chain-view-section-header {
 	font-size: var(--font-ui-smaller);
 	font-weight: var(--font-semibold);
 	color: var(--text-muted);
 	text-transform: uppercase;
 	letter-spacing: 0.06em;
-	padding: 0 var(--size-4-1);
+}
+
+/* ── View toggle ─────────────────────────────────────────────────────────── */
+
+.chain-view-toggle-group {
+	display: flex;
+	gap: 2px;
+}
+
+.chain-view-toggle-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	background: none;
+	border: none;
+	border-radius: var(--radius-s);
+	color: var(--text-faint);
+	cursor: pointer;
+	transition: color 80ms ease, background-color 80ms ease;
+}
+
+.chain-view-toggle-btn .svg-icon {
+	width: 12px;
+	height: 12px;
+}
+
+.chain-view-toggle-btn:hover {
+	color: var(--text-muted);
+	background-color: var(--background-modifier-hover);
+}
+
+.chain-view-toggle-btn.is-active {
+	color: var(--interactive-accent);
+	background-color: var(--background-modifier-hover);
+}
+
+/* ── List view ───────────────────────────────────────────────────────────── */
+
+.chain-view-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: var(--size-4-1) var(--size-4-1);
+}
+
+.chain-view-list-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 3px var(--size-4-2);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	transition: background-color 80ms ease;
+}
+
+.chain-view-list-row:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.chain-view-list-dot {
+	flex-shrink: 0;
+}
+
+.chain-view-list-row.is-dragging {
+	opacity: 0.35;
+	cursor: grabbing;
+}
+
+.chain-view-list-row {
+	cursor: grab;
+}
+
+.chain-view-list-row.drop-before {
+	box-shadow: 0 -2px 0 var(--interactive-accent);
+}
+
+.chain-view-list-row.drop-after {
+	box-shadow: 0 2px 0 var(--interactive-accent);
+}
+
+/* List view dot overrides — each maps to a named status */
+
+/* Done: filled circle with checkmark */
+.chain-view-list-dot.chain-sb-node--previous {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background-color: var(--text-faint);
+	border: 1.5px solid var(--text-faint);
+	color: var(--background-primary);
+}
+
+.chain-view-list-dot.chain-sb-node--previous .svg-icon {
+	width: 10px;
+	height: 10px;
+}
+
+/* Current: accent outline only, no checkmark */
+.chain-view-list-dot.chain-sb-node--current {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	border: 1.5px solid var(--interactive-accent);
+	background: transparent;
+	font-weight: normal;
+	white-space: normal;
+}
+
+/* Ready: outline with checkmark */
+.chain-view-list-dot.chain-sb-node--ready {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background-color: transparent;
+	border: 1.5px solid var(--text-faint);
+	color: var(--text-faint);
+}
+
+.chain-view-list-dot.chain-sb-node--ready .svg-icon {
+	width: 10px;
+	height: 10px;
+}
+
+/* Todo: plain outline, no fill */
+.chain-view-list-dot.chain-sb-node--next {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background-color: transparent;
+	border: 1.5px solid var(--text-faint);
+}
+
+.chain-view-list-name {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	min-width: 0;
+}
+
+.chain-view-list-name--current {
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
 }
 
 /* ── Dot track ───────────────────────────────────────────────────────────── */
