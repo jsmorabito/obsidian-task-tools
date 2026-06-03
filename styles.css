@@ -2,87 +2,59 @@
 
 .chain-status-bar-item {
 	position: fixed;
-	bottom: 4px;
+	bottom: var(--size-4-1);
 	z-index: var(--layer-status-bar, 10);
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--size-4-2);
 	height: 26px;
-	padding: 0 10px;
+	padding: 0 var(--size-4-2);
 	background-color: var(--background-primary);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
 	box-shadow: var(--shadow-s);
-	margin-right: 4px;
+	margin-right: var(--size-4-1);
+}
+
+/* Scrollable items area — max-width is set dynamically via JS after layout */
+.chain-sb-scroll {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	overflow-x: auto;
+	scrollbar-width: none; /* Firefox */
+}
+
+.chain-sb-scroll::-webkit-scrollbar {
+	display: none; /* Chrome / Safari */
 }
 
 .chain-sb-arrow {
 	color: var(--text-faint);
 	user-select: none;
 	line-height: 1;
+	display: flex;
+	align-items: center;
 }
 
-/* Current task — show as plain text */
+.chain-sb-arrow .svg-icon {
+	width: 10px;
+	height: 10px;
+}
+
+/* Current task — accent color text */
 .chain-sb-node--current {
-	color: var(--text-normal);
+	color: var(--interactive-accent);
 	font-weight: var(--font-semibold);
 	white-space: nowrap;
 	user-select: none;
 }
 
-/* Previous task (Done) — filled circle with checkmark */
-.chain-sb-node--previous {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 16px;
-	height: 16px;
-	border-radius: 50%;
-	background-color: var(--text-faint);
-	border: 1.5px solid var(--text-faint);
-	color: var(--background-primary);
-	cursor: pointer;
-	flex-shrink: 0;
-	transition: opacity 80ms ease;
-}
-
-.chain-sb-node--previous .svg-icon {
-	width: 10px;
-	height: 10px;
-}
-
-.chain-sb-node--previous:hover {
-	opacity: 0.8;
-}
-
-/* Ready task — outline with checkmark */
-.chain-sb-node--ready {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 16px;
-	height: 16px;
-	border-radius: 50%;
-	background-color: transparent;
-	border: 1.5px solid var(--text-faint);
-	color: var(--text-faint);
-	cursor: pointer;
-	flex-shrink: 0;
-	transition: opacity 80ms ease;
-}
-
-.chain-sb-node--ready .svg-icon {
-	width: 10px;
-	height: 10px;
-}
-
-.chain-sb-node--ready:hover {
-	opacity: 0.8;
-}
-
-/* Next task (Todo) — outline only */
+/* Shared dot base — all status circle nodes */
+.chain-sb-node--previous,
+.chain-sb-node--ready,
 .chain-sb-node--next {
 	display: flex;
 	align-items: center;
@@ -90,16 +62,51 @@
 	width: 16px;
 	height: 16px;
 	border-radius: 50%;
+	flex-shrink: 0;
+	cursor: pointer;
+}
+
+.chain-sb-node--previous,
+.chain-sb-node--ready,
+.chain-sb-node--next {
+	transition: opacity 80ms ease;
+}
+
+.chain-sb-node--previous:hover,
+.chain-sb-node--ready:hover,
+.chain-sb-node--next:hover {
+	opacity: 0.8;
+}
+
+.chain-sb-node--previous .svg-icon,
+.chain-sb-node--ready .svg-icon {
+	width: 10px;
+	height: 10px;
+}
+
+/* Previous task (Done) — filled circle with checkmark */
+.chain-sb-node--previous {
+	background-color: var(--text-faint);
+	border: 1.5px solid var(--text-faint);
+	color: var(--background-primary);
+}
+
+/* Ready task — outline with checkmark */
+.chain-sb-node--ready {
 	background-color: transparent;
 	border: 1.5px solid var(--text-faint);
-	cursor: pointer;
-	flex-shrink: 0;
+	color: var(--text-faint);
+}
+
+/* Next task (Todo) — outline only */
+.chain-sb-node--next {
+	background-color: transparent;
+	border: 1.5px solid var(--text-faint);
 	transition: border-color 80ms ease;
 }
 
 .chain-sb-node--next:hover {
 	border-color: var(--text-faint);
-	opacity: 0.8;
 }
 
 /* Add button */
@@ -166,13 +173,19 @@
 	box-shadow: 3px 0 0 var(--interactive-accent);
 }
 
-/* Open file highlight — accent color on circles */
-.chain-sb-node--previous.is-open,
-.chain-sb-node--next.is-open {
-	border-color: var(--interactive-accent);
-	color: var(--interactive-accent);
+/* Open file highlight — active nav color on future circles */
+.chain-sb-node--next.is-open,
+.chain-sb-node--ready.is-open {
+	border: 1.5px solid var(--nav-item-color-active);
+	color: var(--nav-item-color-active);
 	background-color: transparent;
-	border: 1.5px solid var(--interactive-accent);
+}
+
+/* Completed + active file — filled circle in active color */
+.chain-sb-node--previous.is-open {
+	background-color: var(--nav-item-color-active);
+	border-color: var(--nav-item-color-active);
+	color: var(--background-primary);
 }
 
 /* Current task when a different file is active — slightly dimmed */
@@ -228,7 +241,7 @@
 
 .chain-view-toggle-group {
 	display: flex;
-	gap: 2px;
+	gap: var(--size-4-1);
 }
 
 .chain-view-toggle-btn {
@@ -261,22 +274,23 @@
 	background-color: var(--background-modifier-hover);
 }
 
+
 /* ── List view ───────────────────────────────────────────────────────────── */
 
 .chain-view-list {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	padding: var(--size-4-1) var(--size-4-1);
+	gap: var(--size-4-1);
+	padding: var(--size-4-1);
 }
 
 .chain-view-list-row {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 3px var(--size-4-2);
+	gap: var(--size-4-2);
+	padding: var(--size-4-1) var(--size-4-2);
 	border-radius: var(--radius-s);
-	cursor: pointer;
+	cursor: grab;
 	transition: background-color 80ms ease;
 }
 
@@ -293,10 +307,6 @@
 	cursor: grabbing;
 }
 
-.chain-view-list-row {
-	cursor: grab;
-}
-
 .chain-view-list-row.drop-before {
 	box-shadow: 0 -2px 0 var(--interactive-accent);
 }
@@ -305,27 +315,12 @@
 	box-shadow: 0 2px 0 var(--interactive-accent);
 }
 
-/* List view dot overrides — each maps to a named status */
+/* List view dot overrides — geometry inherited from shared base, only color differs */
 
-/* Done: filled circle with checkmark */
-.chain-view-list-dot.chain-sb-node--previous {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 16px;
-	height: 16px;
-	border-radius: 50%;
-	background-color: var(--text-faint);
-	border: 1.5px solid var(--text-faint);
-	color: var(--background-primary);
-}
+/* The base geometry is already on .chain-sb-node--previous/ready/next above.
+   These selectors only add context-specific overrides for the list view. */
 
-.chain-view-list-dot.chain-sb-node--previous .svg-icon {
-	width: 10px;
-	height: 10px;
-}
-
-/* Current: accent outline only, no checkmark */
+/* Current: accent outline only, no checkmark (list-view only variant) */
 .chain-view-list-dot.chain-sb-node--current {
 	display: flex;
 	align-items: center;
@@ -335,38 +330,9 @@
 	border-radius: 50%;
 	border: 1.5px solid var(--interactive-accent);
 	background: transparent;
+	flex-shrink: 0;
 	font-weight: normal;
 	white-space: normal;
-}
-
-/* Ready: outline with checkmark */
-.chain-view-list-dot.chain-sb-node--ready {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 16px;
-	height: 16px;
-	border-radius: 50%;
-	background-color: transparent;
-	border: 1.5px solid var(--text-faint);
-	color: var(--text-faint);
-}
-
-.chain-view-list-dot.chain-sb-node--ready .svg-icon {
-	width: 10px;
-	height: 10px;
-}
-
-/* Todo: plain outline, no fill */
-.chain-view-list-dot.chain-sb-node--next {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 16px;
-	height: 16px;
-	border-radius: 50%;
-	background-color: transparent;
-	border: 1.5px solid var(--text-faint);
 }
 
 .chain-view-list-name {
@@ -379,7 +345,7 @@
 }
 
 .chain-view-list-name--current {
-	color: var(--text-normal);
+	color: var(--interactive-accent);
 	font-weight: var(--font-semibold);
 }
 
@@ -416,6 +382,11 @@
 	height: 9px;
 	background-color: var(--interactive-accent);
 	box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+.chain-view-dot.is-open {
+	background-color: var(--nav-item-color-active);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--nav-item-color-active) 30%, transparent);
 }
 
 .chain-view-dot--previous {
@@ -478,11 +449,11 @@
 	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-s);
-	padding: 2px 6px;
+	padding: var(--size-4-1) var(--size-4-2);
 	font-size: var(--font-ui-smaller);
 	white-space: nowrap;
 	pointer-events: none;
-	z-index: 9999;
+	z-index: var(--layer-tooltip);
 	display: none;
 }
 
@@ -676,8 +647,8 @@
 .chain-multiselect-row {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 6px 0;
+	gap: var(--size-4-2);
+	padding: var(--size-4-1) 0;
 	border-bottom: 1px solid var(--background-modifier-border);
 	cursor: pointer;
 }
@@ -690,4 +661,304 @@
 	cursor: pointer;
 	font-size: var(--font-ui-small);
 	color: var(--text-normal);
+}
+
+/* ── Linear view ────────────────────────────────────────────────────────── */
+
+.linear-view {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+/* Toolbar */
+.linear-view__toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--size-4-1) var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+	gap: var(--size-4-2);
+}
+
+.linear-view__toolbar-left {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	min-width: 0;
+	flex: 1;
+}
+
+.linear-view__ws-name {
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.linear-view__ws-select {
+	font-size: var(--font-ui-small);
+	background: transparent;
+	border: none;
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
+	padding: 0;
+	cursor: pointer;
+	max-width: 140px;
+}
+
+/* Spinning state on sync button */
+.linear-view__sync-btn.is-loading .svg-icon {
+	animation: linear-spin 1s linear infinite;
+}
+
+@keyframes linear-spin {
+	from { transform: rotate(0deg); }
+	to   { transform: rotate(360deg); }
+}
+
+/* Filters */
+.linear-view__filters {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	padding: var(--size-4-2) var(--size-4-2) var(--size-4-1);
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
+
+.linear-view__filter-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.linear-view__search {
+	flex: 1;
+	height: 26px;
+	padding: 0 var(--size-4-2);
+	background-color: var(--background-modifier-form-field);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	outline: none;
+}
+
+.linear-view__search:focus {
+	border-color: var(--interactive-accent);
+}
+
+.linear-view__team-select {
+	height: 24px;
+	padding: 0 4px;
+	background-color: var(--background-modifier-form-field);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	cursor: pointer;
+	flex-shrink: 0;
+	max-width: 100px;
+}
+
+.linear-view__toggles {
+	display: flex;
+	gap: var(--size-4-1);
+	margin-left: auto;
+	flex-shrink: 0;
+}
+
+.linear-view__filter-chip {
+	height: 20px;
+	padding: 0 7px;
+	background: none;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-full);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	cursor: pointer;
+	transition: background-color 80ms ease, border-color 80ms ease, color 80ms ease;
+	white-space: nowrap;
+}
+
+.linear-view__filter-chip:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.linear-view__filter-chip.is-active {
+	background-color: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+/* Issue list */
+.linear-view__content {
+	flex: 1;
+	overflow-y: auto;
+	padding: var(--size-4-1) 0;
+}
+
+.linear-view__empty {
+	padding: var(--size-4-8) var(--size-4-4);
+	text-align: center;
+	font-size: var(--font-ui-small);
+	color: var(--text-faint);
+}
+
+/* Issue rows */
+.linear-view__issue-row {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	padding: var(--size-4-1) var(--size-4-3);
+	cursor: pointer;
+	transition: background-color 60ms ease;
+	position: relative;
+}
+
+.linear-view__issue-row:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.linear-view__issue-row.is-imported .linear-view__identifier {
+	color: var(--text-faint);
+}
+
+/* Linear priority colors — override these in your theme's CSS snippet if desired */
+:root {
+	--linear-priority-urgent: #e5484d;
+	--linear-priority-high:   #f76808;
+	--linear-priority-medium: #f5ce00;
+	--linear-status-done:     #22c55e;
+}
+
+/* Priority dot */
+.linear-view__priority-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	margin-top: var(--size-4-1);
+}
+
+.linear-view__priority-dot--0 { background-color: var(--background-modifier-border); }
+.linear-view__priority-dot--1 { background-color: var(--linear-priority-urgent); }
+.linear-view__priority-dot--2 { background-color: var(--linear-priority-high); }
+.linear-view__priority-dot--3 { background-color: var(--linear-priority-medium); }
+.linear-view__priority-dot--4 { background-color: var(--text-faint); opacity: 0.6; }
+
+/* Row body */
+.linear-view__row-body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	flex: 1;
+	min-width: 0;
+}
+
+.linear-view__row-title {
+	display: flex;
+	align-items: baseline;
+	gap: var(--size-4-1);
+	min-width: 0;
+}
+
+.linear-view__identifier {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	white-space: nowrap;
+	flex-shrink: 0;
+	font-variant-numeric: tabular-nums;
+}
+
+.linear-view__title {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	min-width: 0;
+}
+
+/* Status badge */
+.linear-view__status-badge {
+	display: inline-flex;
+	align-items: center;
+	height: 15px;
+	padding: 0 var(--size-4-1);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+	letter-spacing: 0.02em;
+	width: fit-content;
+}
+
+.linear-view__status-badge--backlog,
+.linear-view__status-badge--unstarted {
+	background-color: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+.linear-view__status-badge--started {
+	background-color: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+	color: var(--interactive-accent);
+}
+.linear-view__status-badge--completed {
+	background-color: color-mix(in srgb, var(--linear-status-done) 20%, transparent);
+	color: var(--linear-status-done);
+}
+.linear-view__status-badge--cancelled {
+	background-color: var(--background-modifier-border);
+	color: var(--text-faint);
+}
+
+/* Row action buttons — hidden until hover */
+.linear-view__row-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	flex-shrink: 0;
+	opacity: 0;
+	transition: opacity 80ms ease;
+	margin-top: 1px;
+}
+
+.linear-view__issue-row:hover .linear-view__row-actions {
+	opacity: 1;
+}
+
+.linear-view__action-btn {
+	width: 22px;
+	height: 22px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: var(--radius-s);
+	color: var(--text-muted);
+}
+
+.linear-view__action-btn .svg-icon {
+	width: 13px;
+	height: 13px;
+}
+
+.linear-view__action-btn:hover {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+/* Settings — Linear workspace sections */
+.linear-workspace-list {
+	margin-bottom: var(--size-4-4);
+}
+
+.linear-workspace-section {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	margin-bottom: var(--size-4-3);
+	overflow: hidden;
 }

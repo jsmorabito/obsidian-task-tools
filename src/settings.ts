@@ -13,6 +13,7 @@ export interface TaskToolsSettings {
 	statusBarChainIdKey: string; // idKey of the chain shown in the status bar
 	statusBarDisplayMode: StatusBarDisplayMode;
 	statusBarDotsCount: number; // max visible dots at a time
+	statusBarMaxItems: number; // max items shown before horizontal scroll kicks in (filenames mode)
 	chainBarVisible: boolean;
 	chainBarPosition: ChainBarPosition;
 	chains: ChainDefinition[];
@@ -53,6 +54,7 @@ export const DEFAULT_SETTINGS: TaskToolsSettings = {
 	statusBarChainIdKey: "",
 	statusBarDisplayMode: "filenames",
 	statusBarDotsCount: 7,
+	statusBarMaxItems: 5,
 	chainBarVisible: true,
 	chainBarPosition: "center",
 	chains: [DEFAULT_CHAIN],
@@ -159,6 +161,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 		containerEl.createEl("h2", { text: "Status bar" });
 
 		let dotsCountSetting: Setting;
+		let maxItemsSetting: Setting;
 
 		new Setting(containerEl)
 			.setName("Display mode")
@@ -171,6 +174,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 					this.plugin.settings.statusBarDisplayMode = value as "filenames" | "dots";
 					await this.plugin.saveSettings();
 					dotsCountSetting.settingEl.toggle(value === "dots");
+					maxItemsSetting.settingEl.toggle(value === "filenames");
 				});
 			});
 
@@ -189,6 +193,22 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			);
 
 		dotsCountSetting.settingEl.toggle(this.plugin.settings.statusBarDisplayMode === "dots");
+
+		maxItemsSetting = new Setting(containerEl)
+			.setName("Max visible items")
+			.setDesc("Number of chain items shown before the bar scrolls horizontally. Increase for wider bars, decrease for a more compact bar.")
+			.addSlider((slider) =>
+				slider
+					.setLimits(2, 20, 1)
+					.setValue(this.plugin.settings.statusBarMaxItems)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.plugin.settings.statusBarMaxItems = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		maxItemsSetting.settingEl.toggle(this.plugin.settings.statusBarDisplayMode === "filenames");
 
 		new Setting(containerEl)
 			.setName("Chain bar position")

@@ -1,4 +1,7 @@
-import { App, Menu, Modal, Notice, Plugin, Setting, TFile, setIcon, setTooltip, ButtonComponent } from "obsidian";
+import { App, MarkdownView, Menu, Modal, Notice, Plugin, Setting, TFile, setIcon, setTooltip, ButtonComponent } from "obsidian";
+
+/** Frontmatter key written when a task is marked done. */
+const COMPLETED_DATE_KEY = "completedDate";
 import {
 	DEFAULT_SETTINGS,
 	TaskToolsSettings,
@@ -6,7 +9,7 @@ import {
 	derivedChainKeys,
 	slugifyChainName,
 } from "./settings";
-import { CHAIN_VIEW_TYPE, ChainView } from "./chainView";
+import { CHAIN_VIEW_TYPE, ChainView, QuickAddFileModal } from "./chainView";
 import { NewTaskModal } from "./newTaskModal";
 import { ChainSuggestModal } from "./chainSuggestModal";
 import { ChainInstanceSuggestModal } from "./chainInstanceSuggestModal";
@@ -14,12 +17,65 @@ import type { ChainDefinition, ChainItem, FrontmatterRule } from "./types";
 import { LinearManager } from "./linear/manager";
 import { LINEAR_VIEW_TYPE, LinearView } from "./linear/linearView";
 
+/** Simple modal that prompts for a filename and creates a blank .md file. */
+class NewBlankFileModal extends Modal {
+	private plugin: TaskToolsPlugin;
+	private chain: ChainDefinition;
+	private name = "";
+
+	constructor(plugin: TaskToolsPlugin, chain: ChainDefinition) {
+		super(plugin.app);
+		this.plugin = plugin;
+		this.chain = chain;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.createEl("h2", { text: "New file" });
+
+		new Setting(contentEl)
+			.setName("File name")
+			.addText((text) => {
+				text.setPlaceholder("My new file").onChange((v) => { this.name = v.trim(); });
+				// Submit on Enter
+				text.inputEl.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") { e.preventDefault(); void this.submit(); }
+				});
+				setTimeout(() => text.inputEl.focus(), 0);
+			});
+
+		new Setting(contentEl)
+			.addButton((btn) =>
+				btn.setButtonText("Create").setCta().onClick(() => void this.submit())
+			);
+	}
+
+	onClose(): void { this.contentEl.empty(); }
+
+	private async submit(): Promise<void> {
+		if (!this.name) { new Notice("File name is required."); return; }
+		const folder = this.chain.itemFolder ?? this.plugin.settings.taskFolder ?? "";
+		const dir = folder ? `${folder}/` : "";
+		const path = `${dir}${this.name}.md`;
+		try {
+			const file = await this.plugin.app.vault.create(path, "");
+			await this.plugin.addFileToChain(file, this.chain);
+			this.close();
+		} catch (err) {
+			new Notice(`Could not create file: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+}
+
 export default class TaskToolsPlugin extends Plugin {
 	settings: TaskToolsSettings;
 	linearManager: LinearManager | null = null;
 	private chainStatusBarItem: HTMLElement;
 	private statusBarObserver: ResizeObserver | null = null;
 	private linearSyncIntervalId: number | null = null;
+	/** The file currently open in the main editor, kept in sync via workspace events. */
+	private mainEditorFile: TFile | null = null;
 
 	/**
 	 * Index: key = "${idKey}::${chainId}", value = Set of file paths.
@@ -114,9 +170,22 @@ export default class TaskToolsPlugin extends Plugin {
 			})
 		);
 
-		// Re-render chain bar when the active file changes
+		// file-open: captures new file directly from the event — no leaf query needed.
 		this.registerEvent(
-			this.app.workspace.on("active-leaf-change", () => {
+			this.app.workspace.on("file-open", (file) => {
+				this.mainEditorFile = file ?? null;
+				this.renderChainBreadcrumb();
+			})
+		);
+		// active-leaf-change: use the event's leaf parameter directly.
+		// Only update mainEditorFile when a real markdown leaf became active.
+		// When a sidebar panel steals focus, leaf is not a MarkdownView so we
+		// leave mainEditorFile unchanged and just re-render with the existing value.
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				if (leaf?.view instanceof MarkdownView) {
+					this.mainEditorFile = leaf.view.file;
+				}
 				this.renderChainBreadcrumb();
 			})
 		);
@@ -348,6 +417,29 @@ export default class TaskToolsPlugin extends Plugin {
 			},
 		});
 
+		// File menu: add to chain
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file) => {
+				if (!(file instanceof TFile)) return;
+				if (this.settings.chains.length === 0) return;
+				menu.addItem((item) => {
+					item
+						.setTitle("Add to chain…")
+						.setIcon("link")
+						.onClick(() => {
+							const pickChain = (chain: ChainDefinition) => {
+								void this.addFileToChain(file, chain);
+							};
+							if (this.settings.chains.length === 1 && this.settings.chains[0]) {
+								pickChain(this.settings.chains[0]);
+							} else {
+								new ChainSuggestModal(this.app, this.settings.chains, pickChain).open();
+							}
+						});
+				});
+			})
+		);
+
 		// Command: remove active file from chain
 		this.addCommand({
 			id: "remove-from-chain",
@@ -421,7 +513,8 @@ export default class TaskToolsPlugin extends Plugin {
 			await this.linearManager?.storeOAuthToken(workspaceId, token);
 			new Notice("Linear workspace connected.");
 			// Refresh settings UI
-			(this.app as any).setting?.display?.();
+			(this.app as any).setting?.open?.();
+			(this.app as any).setting?.openTabById?.("obsidian-task-tools");
 		}).open();
 	}
 
@@ -501,6 +594,54 @@ export default class TaskToolsPlugin extends Plugin {
 		}
 		result.sort((a, b) => a.chainId.localeCompare(b.chainId));
 		return result;
+	}
+
+	/**
+	 * Opens a small menu near the triggering element offering four ways to add
+	 * items to the given chain.
+	 */
+	openAddToChainMenu(e: MouseEvent, chain: ChainDefinition): void {
+		const menu = new Menu();
+
+		menu.addItem((item) =>
+			item
+				.setTitle("Add current file to chain")
+				.setIcon("file-plus")
+				.onClick(() => {
+					const file = this.app.workspace.getActiveFile();
+					if (!file) { new Notice("No active file."); return; }
+					void this.addFileToChain(file, chain);
+				})
+		);
+
+		menu.addItem((item) =>
+			item
+				.setTitle("Add file to chain")
+				.setIcon("folder-open")
+				.onClick(() => {
+					new QuickAddFileModal(this, chain).open();
+				})
+		);
+
+		menu.addItem((item) =>
+			item
+				.setTitle("Add new file to chain")
+				.setIcon("file")
+				.onClick(() => {
+					new NewBlankFileModal(this, chain).open();
+				})
+		);
+
+		menu.addItem((item) =>
+			item
+				.setTitle("Add new file with template to chain")
+				.setIcon("layout-template")
+				.onClick(() => {
+					new NewTaskModal(this.app, this, chain).open();
+				})
+		);
+
+		menu.showAtMouseEvent(e);
 	}
 
 	/**
@@ -668,9 +809,16 @@ export default class TaskToolsPlugin extends Plugin {
 		if (!needsReposition) {
 			// Just update the status in place
 			await this.app.fileManager.processFrontMatter(file, (front) => {
-				if (newStatus === "done") front[chain.statusKey] = chain.completedStatusValue;
-				else if (newStatus === "ready") front[chain.statusKey] = chain.readyStatusValue ?? "ready";
-				else delete front[chain.statusKey];
+				if (newStatus === "done") {
+					front[chain.statusKey] = chain.completedStatusValue;
+					front[COMPLETED_DATE_KEY] = (this.app as any).moment().format("YYYY-MM-DD");
+				} else if (newStatus === "ready") {
+					front[chain.statusKey] = chain.readyStatusValue ?? "ready";
+					delete front[COMPLETED_DATE_KEY];
+				} else {
+					delete front[chain.statusKey];
+					delete front[COMPLETED_DATE_KEY];
+				}
 			});
 			return;
 		}
@@ -700,9 +848,16 @@ export default class TaskToolsPlugin extends Plugin {
 				if (itm.role === "current") {
 					front[chain.statusKey] = chain.currentStatusValue;
 				} else if (isTarget) {
-					if (newStatus === "done") front[chain.statusKey] = chain.completedStatusValue;
-					else if (newStatus === "ready") front[chain.statusKey] = readyVal;
-					else delete front[chain.statusKey];
+					if (newStatus === "done") {
+						front[chain.statusKey] = chain.completedStatusValue;
+						front[COMPLETED_DATE_KEY] = (this.app as any).moment().format("YYYY-MM-DD");
+					} else if (newStatus === "ready") {
+						front[chain.statusKey] = readyVal;
+						delete front[COMPLETED_DATE_KEY];
+					} else {
+						delete front[chain.statusKey];
+						delete front[COMPLETED_DATE_KEY];
+					}
 				}
 				// Leave other items' statuses as-is; positions are updated above
 			});
@@ -823,6 +978,7 @@ export default class TaskToolsPlugin extends Plugin {
 		for (const c of allChains) {
 			await this.app.fileManager.processFrontMatter(currentTask, (front) => {
 				front[c.statusKey] = c.completedStatusValue;
+				front[COMPLETED_DATE_KEY] = (this.app as any).moment().format("YYYY-MM-DD");
 			});
 		}
 
@@ -838,7 +994,7 @@ export default class TaskToolsPlugin extends Plugin {
 
 		// Step 3 — set next as current and open it
 		await this.setCurrentTask(next.file, chain);
-		const leaf = this.app.workspace.getMostRecentLeaf();
+		const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
 		if (leaf) await leaf.openFile(next.file);
 	}
 
@@ -988,19 +1144,18 @@ export default class TaskToolsPlugin extends Plugin {
 				? this.settings.chains[0]!.name
 				: "Chains";
 			setTooltip(iconEl, label, { delay: 0, placement: "top" });
-			el.createSpan({ cls: "chain-sb-arrow", text: "→" });
+			const arrowEl2 = el.createSpan({ cls: "chain-sb-arrow" });
+			setIcon(arrowEl2, "chevron-right");
 			const addBtn = el.createSpan({ cls: "chain-sb-add-btn" });
 			setIcon(addBtn, "plus");
-			setTooltip(addBtn, "Add active file to chain", { delay: 0, placement: "top" });
-			addBtn.addEventListener("click", async (e) => {
+			setTooltip(addBtn, "Add to chain", { delay: 0, placement: "top" });
+			addBtn.addEventListener("click", (e) => {
 				e.stopPropagation();
-				const file = this.app.workspace.getActiveFile();
-				if (!file) { new Notice("No active file."); return; }
 				if (this.settings.chains.length === 1 && this.settings.chains[0]) {
-					await this.addFileToChain(file, this.settings.chains[0]);
+					this.openAddToChainMenu(e, this.settings.chains[0]);
 				} else {
-					new ChainSuggestModal(this.app, this.settings.chains, async (chain) => {
-						await this.addFileToChain(file, chain);
+					new ChainSuggestModal(this.app, this.settings.chains, (chain) => {
+						this.openAddToChainMenu(e, chain);
 					}).open();
 				}
 			});
@@ -1036,8 +1191,8 @@ export default class TaskToolsPlugin extends Plugin {
 		const items = this.buildChain(currentTask, chain);
 		if (items.length === 0) { this.positionChainBar(); return; }
 
-		// Track which file is currently open for accent highlighting
-		const activeFile = this.app.workspace.getActiveFile();
+		// Use the pre-stored main editor file — avoids leaf query timing issues.
+		const activeFile = this.mainEditorFile;
 
 		// Chain icon — shows chain name on hover, switches chain on click
 		const iconEl = el.createSpan({ cls: "chain-sb-chain-icon" });
@@ -1047,7 +1202,10 @@ export default class TaskToolsPlugin extends Plugin {
 			e.stopPropagation();
 			this.openStatusBarChainPicker();
 		});
-		el.createSpan({ cls: "chain-sb-arrow", text: "→" });
+		const firstArrow = el.createSpan({ cls: "chain-sb-arrow" });
+		setIcon(firstArrow, "chevron-right");
+
+		const scrollEl = el.createDiv({ cls: "chain-sb-scroll" });
 
 		// Drag state scoped to this render
 		let dragSrcIdx = -1;
@@ -1065,23 +1223,37 @@ export default class TaskToolsPlugin extends Plugin {
 			this.renderChainBreadcrumb();
 		};
 
+		let currentNode: HTMLElement | null = null;
+		let openFileNode: HTMLElement | null = null;
+
 		items.forEach((item, idx) => {
 			if (idx > 0) {
-				el.createSpan({ cls: "chain-sb-arrow", text: "→" });
+				const arrowEl = scrollEl.createSpan({ cls: "chain-sb-arrow" });
+				setIcon(arrowEl, "chevron-right");
 			}
 
 			const isOpen = activeFile?.path === item.file.path;
 
 			if (item.role === "current") {
-				const node = el.createSpan({
+				const node = scrollEl.createSpan({
 					cls: "chain-sb-node chain-sb-node--current" + (isOpen ? "" : " is-away"),
 					text: item.file.basename,
+					attr: { tabindex: "0", role: "button" },
 				});
+				currentNode = node;
+				if (isOpen) openFileNode = node;
 				setTooltip(node, item.file.basename, { delay: 0, placement: "top" });
 				node.addEventListener("click", async (e) => {
 					e.stopPropagation();
-					const leaf = this.app.workspace.getMostRecentLeaf();
+					const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
 					if (leaf) await leaf.openFile(item.file);
+				});
+				node.addEventListener("keydown", async (e) => {
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault();
+						const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
+						if (leaf) await leaf.openFile(item.file);
+					}
 				});
 				node.addEventListener("contextmenu", (e) => {
 					e.stopPropagation();
@@ -1115,16 +1287,23 @@ export default class TaskToolsPlugin extends Plugin {
 					}
 					menu.addItem((mi) =>
 						mi.setTitle("Open file").setIcon("file-open").onClick(async () => {
-							const leaf = this.app.workspace.getMostRecentLeaf();
+							const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
 							if (leaf) await leaf.openFile(item.file);
+						})
+					);
+					menu.addItem((mi) =>
+						mi.setTitle("Remove from chain").setIcon("trash").onClick(async () => {
+							await this.removeFileFromChain(item.file, chain);
 						})
 					);
 					menu.showAtMouseEvent(e);
 				});
 			} else {
-				const node = el.createSpan({
+				const node = scrollEl.createSpan({
 					cls: `chain-sb-node chain-sb-node--${item.role}${isOpen ? " is-open" : ""}`,
+					attr: { tabindex: "0", role: "button" },
 				});
+				if (isOpen) openFileNode = node;
 				if (item.role === "previous" || item.role === "ready") setIcon(node, "check");
 				setTooltip(node, item.file.basename, { delay: 0, placement: "top" });
 
@@ -1136,7 +1315,7 @@ export default class TaskToolsPlugin extends Plugin {
 				});
 				node.addEventListener("dragend", () => {
 					node.removeClass("is-dragging");
-					el.querySelectorAll(".chain-sb-drop-before, .chain-sb-drop-after")
+					scrollEl.querySelectorAll(".chain-sb-drop-before, .chain-sb-drop-after")
 						.forEach((n) => { n.removeClass("chain-sb-drop-before"); n.removeClass("chain-sb-drop-after"); });
 				});
 				node.addEventListener("dragover", (e) => {
@@ -1144,7 +1323,7 @@ export default class TaskToolsPlugin extends Plugin {
 					if (dragSrcIdx === idx) return;
 					const rect = node.getBoundingClientRect();
 					const mid = rect.left + rect.width / 2;
-					el.querySelectorAll(".chain-sb-node").forEach((n) => {
+					scrollEl.querySelectorAll(".chain-sb-node").forEach((n) => {
 						n.removeClass("chain-sb-drop-before");
 						n.removeClass("chain-sb-drop-after");
 					});
@@ -1174,8 +1353,15 @@ export default class TaskToolsPlugin extends Plugin {
 
 				node.addEventListener("click", async (e) => {
 					e.stopPropagation();
-					const leaf = this.app.workspace.getMostRecentLeaf();
+					const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
 					if (leaf) await leaf.openFile(item.file);
+				});
+				node.addEventListener("keydown", async (e) => {
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault();
+						const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
+						if (leaf) await leaf.openFile(item.file);
+					}
 				});
 				node.addEventListener("contextmenu", (e) => {
 					e.stopPropagation();
@@ -1210,8 +1396,13 @@ export default class TaskToolsPlugin extends Plugin {
 					}
 					menu.addItem((mi) =>
 						mi.setTitle("Open file").setIcon("file-open").onClick(async () => {
-							const leaf = this.app.workspace.getMostRecentLeaf();
+							const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
 							if (leaf) await leaf.openFile(item.file);
+						})
+					);
+					menu.addItem((mi) =>
+						mi.setTitle("Remove from chain").setIcon("trash").onClick(async () => {
+							await this.removeFileFromChain(item.file, chain);
 						})
 					);
 					menu.showAtMouseEvent(e);
@@ -1219,16 +1410,60 @@ export default class TaskToolsPlugin extends Plugin {
 			}
 		});
 
-		// "+" button to add the active file to the chain
-		el.createSpan({ cls: "chain-sb-arrow", text: "→" });
+		// After layout: size container based on current-task window, scroll to show open file.
+		// Use offsetLeft relative to scrollEl to get stable scroll-content positions.
+		requestAnimationFrame(() => {
+			const maxVisible = this.settings.statusBarDisplayMode === "filenames"
+				? (this.settings.statusBarMaxItems ?? 5)
+				: (this.settings.statusBarDotsCount ?? 7);
+			const itemNodes = Array.from(scrollEl.querySelectorAll(".chain-sb-node")) as HTMLElement[];
+			if (itemNodes.length <= maxVisible) return;
+
+			// offsetLeft of each node is relative to the fixed-position ancestor.
+			// Subtract scrollEl's own offsetLeft to get position within scroll content.
+			const scrollElLeft = scrollEl.offsetLeft;
+			const contentLeft  = (node: HTMLElement) => node.offsetLeft - scrollElLeft;
+			const contentRight = (node: HTMLElement) => node.offsetLeft + node.offsetWidth - scrollElLeft;
+
+			// ── Size: window centered on the current task (contains the text node) ──
+			const sizeIdx = currentNode ? itemNodes.indexOf(currentNode) : 0;
+			const half = Math.floor((maxVisible - 1) / 2);
+			let sStart = Math.max(0, sizeIdx - half);
+			let sEnd = sStart + maxVisible;
+			if (sEnd > itemNodes.length) { sEnd = itemNodes.length; sStart = Math.max(0, sEnd - maxVisible); }
+
+			const sFirstNode = itemNodes[sStart];
+			const sLastNode  = itemNodes[sEnd - 1];
+			if (!sFirstNode || !sLastNode) return;
+
+			const windowWidth = contentRight(sLastNode) - contentLeft(sFirstNode);
+			scrollEl.style.maxWidth = `${windowWidth}px`;
+
+			// ── Scroll: center on the open file (if in chain), else on current task ──
+			const openIdx = openFileNode ? itemNodes.indexOf(openFileNode) : -1;
+			const scrollIdx = openIdx >= 0 ? openIdx : sizeIdx;
+			let pStart = Math.max(0, scrollIdx - half);
+			let pEnd = pStart + maxVisible;
+			if (pEnd > itemNodes.length) { pEnd = itemNodes.length; pStart = Math.max(0, pEnd - maxVisible); }
+
+			const pFirstNode = itemNodes[pStart];
+			if (!pFirstNode) return;
+			const targetScrollLeft = contentLeft(pFirstNode);
+
+			// Clamp so the visible area is always full (no empty space on the right)
+			const maxScrollLeft = Math.max(0, scrollEl.scrollWidth - windowWidth);
+			scrollEl.scrollLeft = Math.max(0, Math.min(targetScrollLeft, maxScrollLeft));
+		});
+
+		// "+" button to add a file to the chain — lives outside the scroll area
+		const lastArrow = el.createSpan({ cls: "chain-sb-arrow" });
+		setIcon(lastArrow, "chevron-right");
 		const addBtn = el.createSpan({ cls: "chain-sb-add-btn" });
 		setIcon(addBtn, "plus");
-		setTooltip(addBtn, "Add active file to chain", { delay: 0, placement: "top" });
-		addBtn.addEventListener("click", async (e) => {
+		setTooltip(addBtn, "Add to chain", { delay: 0, placement: "top" });
+		addBtn.addEventListener("click", (e) => {
 			e.stopPropagation();
-			const file = this.app.workspace.getActiveFile();
-			if (!file) { new Notice("No active file."); return; }
-			await this.addFileToChain(file, chain);
+			this.openAddToChainMenu(e, chain);
 		});
 
 		this.positionChainBar();

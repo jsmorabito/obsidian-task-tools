@@ -29,10 +29,6 @@ export class ChainSuggestModal extends SuggestModal<ChainDefinition> {
 
 	renderSuggestion(chain: ChainDefinition, el: HTMLElement): void {
 		el.createEl("div", { text: chain.name, cls: "chain-suggest-name" });
-		el.createEl("small", {
-			text: `id key: ${chain.idKey}`,
-			cls: "chain-suggest-detail",
-		});
 	}
 
 	onChooseSuggestion(chain: ChainDefinition): void {

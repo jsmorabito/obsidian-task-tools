@@ -1,12 +1,38 @@
-import { ItemView, Menu, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { FuzzySuggestModal, ItemView, MarkdownView, Menu, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import TaskToolsPlugin from "./main";
 import type { ChainDefinition, ChainItem } from "./types";
+
+export class QuickAddFileModal extends FuzzySuggestModal<TFile> {
+	private plugin: TaskToolsPlugin;
+	private chain: ChainDefinition;
+
+	constructor(plugin: TaskToolsPlugin, chain: ChainDefinition) {
+		super(plugin.app);
+		this.plugin = plugin;
+		this.chain = chain;
+		this.setPlaceholder("Choose a file to add to the chain…");
+	}
+
+	getItems(): TFile[] {
+		return this.app.vault.getMarkdownFiles();
+	}
+
+	getItemText(file: TFile): string {
+		return file.basename;
+	}
+
+	async onChooseItem(file: TFile): Promise<void> {
+		await this.plugin.addFileToChain(file, this.chain);
+	}
+}
 
 export const CHAIN_VIEW_TYPE = "task-tools-chain-view";
 
 export class ChainView extends ItemView {
 	plugin: TaskToolsPlugin;
 	private viewModes: Map<string, "dots" | "list"> = new Map();
+	private renderDebounceTimer: number | null = null;
+	private mainEditorFile: TFile | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: TaskToolsPlugin) {
 		super(leaf);
@@ -26,11 +52,39 @@ export class ChainView extends ItemView {
 	}
 
 	async onOpen(): Promise<void> {
+		const container = this.containerEl.children[1] as HTMLElement;
+		container.addClass("chain-view-container");
+
+		this.mainEditorFile = this.app.workspace.getActiveFile();
 		this.render();
 
 		this.registerEvent(
-			this.app.metadataCache.on("changed", () => this.render())
+			this.app.metadataCache.on("changed", () => this.debouncedRender())
 		);
+		this.registerEvent(
+			this.app.workspace.on("file-open", (file) => {
+				this.mainEditorFile = file ?? null;
+				this.debouncedRender();
+			})
+		);
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				if (leaf?.view instanceof MarkdownView) {
+					this.mainEditorFile = leaf.view.file;
+				}
+				this.debouncedRender();
+			})
+		);
+	}
+
+	private debouncedRender(): void {
+		if (this.renderDebounceTimer !== null) {
+			window.clearTimeout(this.renderDebounceTimer);
+		}
+		this.renderDebounceTimer = window.setTimeout(() => {
+			this.renderDebounceTimer = null;
+			this.render();
+		}, 150);
 	}
 
 	async onClose(): Promise<void> {}
@@ -38,7 +92,6 @@ export class ChainView extends ItemView {
 	render(): void {
 		const container = this.containerEl.children[1] as HTMLElement;
 		container.empty();
-		container.addClass("chain-view-container");
 
 		const chains = this.plugin.settings.chains;
 
@@ -61,8 +114,13 @@ export class ChainView extends ItemView {
 		const header = section.createEl("div", { cls: "chain-view-section-header-row" });
 		header.createEl("div", { text: chain.name, cls: "chain-view-section-header" });
 
-		// View toggle buttons
+		// View toggle buttons + quick-add (left of group)
 		const toggleGroup = header.createEl("div", { cls: "chain-view-toggle-group" });
+		const addBtn = toggleGroup.createEl("button", { cls: "chain-view-toggle-btn chain-view-add-btn", attr: { "aria-label": "Add file to chain" } });
+		setIcon(addBtn, "plus");
+		addBtn.addEventListener("click", (e) => {
+			this.plugin.openAddToChainMenu(e, chain);
+		});
 		const dotsBtn = toggleGroup.createEl("button", { cls: "chain-view-toggle-btn", attr: { "aria-label": "Dots view" } });
 		setIcon(dotsBtn, "more-horizontal");
 		const listBtn = toggleGroup.createEl("button", { cls: "chain-view-toggle-btn", attr: { "aria-label": "List view" } });
@@ -112,6 +170,7 @@ export class ChainView extends ItemView {
 
 		const renderDots = (parent: HTMLElement) => {
 			const trackEl = parent.createEl("div", { cls: "chain-view-track" });
+			const mainFile = this.mainEditorFile;
 
 			let dragSrcIdx: number | null = null;
 			const wrappers: HTMLElement[] = [];
@@ -125,8 +184,9 @@ export class ChainView extends ItemView {
 				wrapper.draggable = true;
 				wrappers.push(wrapper);
 
+				const isOpen = mainFile?.path === item.file.path;
 				const dot = wrapper.createEl("div", {
-					cls: `chain-view-dot chain-view-dot--${item.role}`,
+					cls: `chain-view-dot chain-view-dot--${item.role}${isOpen ? " is-open" : ""}`,
 				});
 
 				const tip = document.body.createEl("div", {
@@ -207,6 +267,7 @@ export class ChainView extends ItemView {
 
 		const renderList = (parent: HTMLElement) => {
 			const listEl = parent.createEl("div", { cls: "chain-view-list" });
+			const mainFile = this.mainEditorFile;
 
 			let dragSrcIdx: number | null = null;
 			const rows: HTMLElement[] = [];
@@ -303,7 +364,10 @@ export class ChainView extends ItemView {
 				rows.push(row);
 
 				// Dot
-				const dot = row.createEl("span", { cls: `chain-view-list-dot chain-sb-node--${item.role}` });
+				const isOpen = mainFile?.path === item.file.path;
+				const dot = row.createEl("span", {
+					cls: `chain-view-list-dot chain-sb-node--${item.role}${isOpen ? " is-open" : ""}`,
+				});
 				if (item.role === "previous" || item.role === "ready") setIcon(dot, "check");
 
 				// Name
@@ -314,7 +378,7 @@ export class ChainView extends ItemView {
 
 				// Click to open
 				const open = async () => {
-					const leaf = this.app.workspace.getMostRecentLeaf();
+					const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
 					if (leaf) await leaf.openFile(item.file);
 				};
 				row.addEventListener("click", open);
@@ -408,6 +472,11 @@ export class ChainView extends ItemView {
 					menu.addItem((mi) =>
 						mi.setTitle("Open file").setIcon("file-open").onClick(open)
 					);
+					menu.addItem((mi) =>
+						mi.setTitle("Remove from chain").setIcon("trash").onClick(async () => {
+							await this.plugin.removeFileFromChain(item.file, chain);
+						})
+					);
 					menu.showAtMouseEvent(e);
 				});
 			});
@@ -432,7 +501,7 @@ export class ChainView extends ItemView {
 			cls: "chain-view-detail__name chain-view-item--clickable",
 		});
 		nameEl.addEventListener("click", async () => {
-			const leaf = this.app.workspace.getMostRecentLeaf();
+			const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
 			if (leaf) await leaf.openFile(item.file);
 		});
 

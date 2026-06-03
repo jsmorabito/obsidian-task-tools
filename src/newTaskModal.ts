@@ -3,7 +3,7 @@ import {
 	Modal,
 	Notice,
 	Setting,
-	TextComponent,
+	TFile,
 	normalizePath,
 	parseYaml,
 	stringifyYaml,
@@ -23,6 +23,8 @@ export class NewTaskModal extends Modal {
 	private taskName: string = "";
 	private enrollments: Map<string, ChainEnrollment> = new Map();
 	private preselectedChain: ChainDefinition | null;
+	/** User-chosen template path; null means use the auto-resolved default. */
+	private templatePathOverride: string | null = null;
 
 	constructor(app: App, plugin: TaskToolsPlugin, preselectedChain?: ChainDefinition) {
 		super(app);
@@ -39,14 +41,27 @@ export class NewTaskModal extends Modal {
 		}
 	}
 
+	/** Returns files from the Obsidian Templates / Templater folder, or all markdown files. */
+	private getTemplateFiles(): TFile[] {
+		const app = this.app as unknown as {
+			internalPlugins?: { plugins?: Record<string, { instance?: { options?: { folder?: string } } }> };
+			plugins?: { plugins?: Record<string, { settings?: { templates_folder?: string } }> };
+		};
+		const coreFolder = app.internalPlugins?.plugins?.["templates"]?.instance?.options?.folder;
+		const templaterFolder = app.plugins?.plugins?.["templater-obsidian"]?.settings?.templates_folder;
+		const folder = coreFolder ?? templaterFolder ?? null;
+		const all = this.app.vault.getMarkdownFiles();
+		if (!folder) return all;
+		const prefix = folder.endsWith("/") ? folder : folder + "/";
+		return all.filter((f) => f.path.startsWith(prefix));
+	}
+
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.addClass("new-task-modal");
 
-		const title = this.preselectedChain
-			? `New ${this.preselectedChain.name} item`
-			: "New task";
+		const title = this.preselectedChain ? "New chain item" : "New task";
 		contentEl.createEl("h2", { text: title });
 
 		const itemLabel = this.preselectedChain ? "Item name" : "Task name";
@@ -57,7 +72,21 @@ export class NewTaskModal extends Modal {
 				text.setPlaceholder(this.preselectedChain ? "My item" : "My task").onChange((value) => {
 					this.taskName = value.trim();
 				});
-				setTimeout(() => text.inputEl.focus(), 50);
+				setTimeout(() => text.inputEl.focus(), 0);
+			});
+
+		// Template dropdown — lists files from the configured templates folder
+		const templateFiles = this.getTemplateFiles();
+		const resolvedDefault = this.resolveCreationConfig().templatePath;
+		new Setting(contentEl)
+			.setName("Template")
+			.addDropdown((dd) => {
+				dd.addOption("", resolvedDefault ? `Default (${resolvedDefault.split("/").pop()})` : "None");
+				for (const f of templateFiles) {
+					dd.addOption(f.path, f.basename);
+				}
+				dd.setValue(this.templatePathOverride ?? "");
+				dd.onChange((v) => { this.templatePathOverride = v || null; });
 			});
 
 		contentEl.createEl("h3", { text: "Add to chains" });
@@ -87,7 +116,7 @@ export class NewTaskModal extends Modal {
 		const toggleSetting = new Setting(section)
 			.setName(chain.name)
 			.addToggle((toggle) =>
-				toggle.setValue(false).onChange((value) => {
+				toggle.setValue(enrollment.enabled).onChange((value) => {
 					enrollment.enabled = value;
 					detailEl.style.display = value ? "block" : "none";
 				})
@@ -97,54 +126,10 @@ export class NewTaskModal extends Modal {
 		const detailEl = section.createEl("div", { cls: "new-task-chain-detail" });
 		detailEl.style.display = enrollment.enabled ? "block" : "none";
 
+		// Auto-set chain ID and position from existing data
 		const existingIds = this.getExistingChainIds(chain);
-
-		let positionText: TextComponent;
-
-		new Setting(detailEl)
-			.setName("Chain ID")
-			.setDesc(`Which ${chain.name} chain to join (or type a new one).`)
-			.addDropdown((dropdown) => {
-				existingIds.forEach((id) => dropdown.addOption(id, id));
-				dropdown.addOption("__new__", "— new chain ID —");
-				if (existingIds.length > 0) {
-					enrollment.chainId = existingIds[0] ?? "";
-					dropdown.setValue(existingIds[0] ?? "__new__");
-				}
-				dropdown.onChange((value) => {
-					enrollment.chainId = value === "__new__" ? "" : value;
-					enrollment.position = this.getNextPosition(chain, enrollment.chainId);
-					if (positionText) positionText.setValue(String(enrollment.position));
-					newIdSetting.settingEl.style.display = value === "__new__" ? "flex" : "none";
-				});
-			});
-
-		const newIdSetting = new Setting(detailEl)
-			.setName("New chain ID")
-			.setDesc("Identifier for the new chain (e.g. my-project).")
-			.addText((text) => {
-				text.setPlaceholder("my-project").onChange((value) => {
-					enrollment.chainId = value.trim();
-					enrollment.position = this.getNextPosition(chain, enrollment.chainId);
-					if (positionText) positionText.setValue(String(enrollment.position));
-				});
-			});
-		newIdSetting.settingEl.style.display = existingIds.length > 0 ? "none" : "flex";
-
-		new Setting(detailEl)
-			.setName("Position")
-			.setDesc("Numeric position in the chain. Defaults to the next available slot.")
-			.addText((text) => {
-				positionText = text;
-				const defaultPos = existingIds[0]
-					? this.getNextPosition(chain, existingIds[0])
-					: 1;
-				enrollment.position = defaultPos;
-				if (existingIds[0]) enrollment.chainId = existingIds[0];
-				text.setValue(String(defaultPos)).onChange((value) => {
-					enrollment.position = parseInt(value) || 1;
-				});
-			});
+		enrollment.chainId = existingIds[0] ?? "";
+		enrollment.position = this.getNextPosition(chain, enrollment.chainId);
 
 		new Setting(detailEl)
 			.setName("Set as current")
@@ -221,7 +206,9 @@ export class NewTaskModal extends Modal {
 
 		const pluginFm: Record<string, unknown> = {};
 
-		const { fmKey, fmValue, folder: rawFolder, templatePath } = this.resolveCreationConfig();
+		const resolved = this.resolveCreationConfig();
+		const { fmKey, fmValue, folder: rawFolder } = resolved;
+		const templatePath = this.templatePathOverride ?? resolved.templatePath;
 		if (fmKey) {
 			pluginFm[fmKey] = fmValue || true;
 		}
