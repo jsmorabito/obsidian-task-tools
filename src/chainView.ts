@@ -281,6 +281,9 @@ export class ChainView extends ItemView {
 				// Explicitly writes status to every item to prevent stale frontmatter.
 				const reassignStatuses = async (newItems: ChainItem[], currentWasDragged: boolean) => {
 					const currentIdx = newItems.findIndex((i) => i.role === "current");
+					// If no current item is found (race condition with metadata cache), bail out
+					// rather than deleting all statuses and breaking the chain.
+					if (currentIdx === -1) return;
 					const readyVal = chain.readyStatusValue ?? "ready";
 
 					// Case A: current dragged EARLIER - done items now appear after it.
@@ -301,11 +304,14 @@ export class ChainView extends ItemView {
 							const r = newItems[i]!.role;
 							if (r === "next" || r === "ready") { newCurrentIdx = i; break; }
 						}
+						// No next/ready item after current — keep the current item as current
+						// rather than marking everything done and leaving no current task.
+						if (newCurrentIdx === -1) newCurrentIdx = currentIdx;
 						for (let i = 0; i < newItems.length; i++) {
 							const itm = newItems[i]!;
 							await this.app.fileManager.processFrontMatter(itm.file, (front: Record<string, unknown>) => {
 								front[chain.positionKey] = i + 1;
-								if (newCurrentIdx === -1 || i < newCurrentIdx) {
+								if (i < newCurrentIdx) {
 									front[chain.statusKey] = chain.completedStatusValue;
 								} else if (i === newCurrentIdx) {
 									front[chain.statusKey] = chain.currentStatusValue;
@@ -445,7 +451,7 @@ export class ChainView extends ItemView {
 						);
 					}
 
-					if (item.role !== "ready") {
+					if (item.role !== "ready" && item.role !== "current") {
 						menu.addItem((mi) =>
 							mi.setTitle("Mark as ready").setIcon("check-circle").onClick(async () => {
 								await this.plugin.setItemStatus(item.file, chain, "ready");
@@ -453,7 +459,7 @@ export class ChainView extends ItemView {
 						);
 					}
 
-					if (item.role !== "previous") {
+					if (item.role !== "previous" && item.role !== "current") {
 						menu.addItem((mi) =>
 							mi.setTitle("Mark as done").setIcon("check").onClick(async () => {
 								await this.plugin.setItemStatus(item.file, chain, "done");
@@ -461,7 +467,7 @@ export class ChainView extends ItemView {
 						);
 					}
 
-					if (item.role !== "next") {
+					if (item.role !== "next" && item.role !== "current") {
 						menu.addItem((mi) =>
 							mi.setTitle("Mark as todo").setIcon("circle").onClick(async () => {
 								await this.plugin.setItemStatus(item.file, chain, "todo");

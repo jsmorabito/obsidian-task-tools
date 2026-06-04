@@ -1267,25 +1267,6 @@ export default class TaskToolsPlugin extends Plugin {
 							})
 						);
 					}
-					if (item.role !== "ready") {
-						menu.addItem((mi) =>
-							mi.setTitle("Mark as ready").setIcon("check-circle").onClick(async () => {
-								await this.setItemStatus(item.file, chain, "ready");
-							})
-						);
-					}
-					menu.addItem((mi) =>
-						mi.setTitle("Mark as done").setIcon("check").onClick(async () => {
-							await this.setItemStatus(item.file, chain, "done");
-						})
-					);
-					if (item.role !== "next") {
-						menu.addItem((mi) =>
-							mi.setTitle("Mark as todo").setIcon("circle").onClick(async () => {
-								await this.setItemStatus(item.file, chain, "todo");
-							})
-						);
-					}
 					menu.addItem((mi) =>
 						mi.setTitle("Open file").setIcon("file-open").onClick(async () => {
 							await this.openFileRespectingPin(item.file);
@@ -1370,21 +1351,21 @@ export default class TaskToolsPlugin extends Plugin {
 							})
 						);
 					}
-					if (item.role !== "ready") {
+					if (item.role !== "ready" && item.role !== "current") {
 						menu.addItem((mi) =>
 							mi.setTitle("Mark as ready").setIcon("check-circle").onClick(async () => {
 								await this.setItemStatus(item.file, chain, "ready");
 							})
 						);
 					}
-					if (item.role !== "previous") {
+					if (item.role !== "previous" && item.role !== "current") {
 						menu.addItem((mi) =>
 							mi.setTitle("Mark as done").setIcon("check").onClick(async () => {
 								await this.setItemStatus(item.file, chain, "done");
 							})
 						);
 					}
-					if (item.role !== "next") {
+					if (item.role !== "next" && item.role !== "current") {
 						menu.addItem((mi) =>
 							mi.setTitle("Mark as todo").setIcon("circle").onClick(async () => {
 								await this.setItemStatus(item.file, chain, "todo");
