@@ -806,7 +806,7 @@ export default class TaskToolsPlugin extends Plugin {
 		if (!currentItem || !targetItem) return;
 
 		const needsReposition =
-			(newStatus === "done" && targetItem.role !== "previous") ||
+			(newStatus === "done" && targetItem.role !== "previous" && targetItem.role !== "current") ||
 			((newStatus === "todo" || newStatus === "ready") && targetItem.role === "previous");
 
 		if (!needsReposition) {
