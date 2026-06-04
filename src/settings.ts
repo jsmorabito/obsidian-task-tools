@@ -92,20 +92,24 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
+		this.refresh();
+	}
+
+	private refresh(): void {
 		const { containerEl } = this;
-		const scrollEl = containerEl.closest(".vertical-tab-content") as HTMLElement | null;
+		const scrollEl = containerEl.closest(".vertical-tab-content");
 		const scrollTop = scrollEl?.scrollTop ?? 0;
 		containerEl.empty();
 
 		// ── Task file detection ──────────────────────────────────────────────
-		containerEl.createEl("h2", { text: "Task file detection" });
+		new Setting(containerEl).setName("Task file detection").setHeading();
 
 		new Setting(containerEl)
 			.setName("Frontmatter key")
 			.setDesc("The frontmatter key used to identify a file as a task.")
 			.addText((text) =>
 				text
-					.setPlaceholder("type")
+					.setPlaceholder("Type")
 					.setValue(this.plugin.settings.taskFrontmatterKey)
 					.onChange(async (value) => {
 						this.plugin.settings.taskFrontmatterKey = value;
@@ -120,7 +124,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			)
 			.addText((text) =>
 				text
-					.setPlaceholder("task")
+					.setPlaceholder("Task")
 					.setValue(this.plugin.settings.taskFrontmatterValue)
 					.onChange(async (value) => {
 						this.plugin.settings.taskFrontmatterValue = value;
@@ -158,7 +162,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			});
 
 		// ── Status bar ──────────────────────────────────────────────────────
-		containerEl.createEl("h2", { text: "Status bar" });
+		new Setting(containerEl).setName("Status bar").setHeading();
 
 		let dotsCountSetting: Setting;
 		let maxItemsSetting: Setting;
@@ -225,7 +229,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			});
 
 		// ── Chain schemas ────────────────────────────────────────────────────
-		containerEl.createEl("h2", { text: "Chain schemas" });
+		new Setting(containerEl).setName("Chain schemas").setHeading();
 		containerEl.createEl("p", {
 			text: "Each schema defines a set of frontmatter keys for one chain type. A note participates in a chain by having that schema's keys in its frontmatter.",
 			cls: "setting-item-description",
@@ -249,7 +253,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 						readyStatusValue: "ready",
 					});
 					await this.plugin.saveSettings();
-					this.display();
+					this.refresh();
 				})
 		);
 
@@ -267,7 +271,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 		const section = containerEl.createEl("div", { cls: "chain-schema-section" });
 
 		const headerEl = section.createEl("div", { cls: "chain-schema-header" });
-		const h3 = headerEl.createEl("h3", { text: chain.name || `Chain ${idx + 1}` });
+		const h3 = new Setting(headerEl).setName("").setHeading();
 
 		const removeBtn = headerEl.createEl("button", {
 			text: "Remove",
@@ -276,7 +280,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 		removeBtn.addEventListener("click", async () => {
 			this.plugin.settings.chains.splice(idx, 1);
 			await this.plugin.saveSettings();
-			this.display();
+			this.refresh();
 		});
 
 		// Refs to derived-key inputs so we can update them in-place when the name changes
@@ -311,7 +315,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			.setDesc("Display name for this chain schema.")
 			.addText((text) =>
 				text
-					.setPlaceholder("My Chain")
+					.setPlaceholder("My chain")
 					.setValue(chain.name ?? "")
 					.onChange(async (value) => {
 						const c = this.plugin.settings.chains[idx];
@@ -335,7 +339,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 						}
 						c.name = value.trim() || "New Chain";
 						// Update header in-place — no full re-render needed
-						h3.setText(c.name);
+						h3.setName(c.name);
 						await this.plugin.saveSettings();
 					})
 			);
@@ -379,13 +383,13 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 
 		// ── Linear workspace binding ─────────────────────────────────────────
 		section.createEl("p", {
-			text: "Linear (optional) — bind this chain to a specific Linear workspace. The Linear panel will default to that workspace when this chain is active.",
+			text: "Linear (optional) — bind this chain to a specific linear workspace. The linear panel will default to that workspace when this chain is active.",
 			cls: "setting-item-description",
 		});
 
 		new Setting(section)
 			.setName("Linear workspace")
-			.setDesc("Restrict this chain's Linear panel to one workspace, or leave unset to allow mixed workspaces.")
+			.setDesc("Restrict this chain's linear panel to one workspace, or leave unset to allow mixed workspaces.")
 			.addDropdown((drop) => {
 				drop.addOption("", "— any workspace —");
 				for (const ws of this.plugin.settings.linearWorkspaces) {
@@ -401,13 +405,13 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 
 		// ── Auto-populate ────────────────────────────────────────────────────
 		section.createEl("p", {
-			text: "Auto-populate (optional) — automatically add vault files that match frontmatter rules to this chain. Run via the 'Auto-populate chains' command.",
+			text: "Auto-populate (optional) — automatically add vault files that match frontmatter rules to this chain. Run via the 'auto-populate chains' command.",
 			cls: "setting-item-description",
 		});
 
 		new Setting(section)
 			.setName("Auto-populate enabled")
-			.setDesc("When enabled, the 'Auto-populate chains' command will scan the vault and add matching files to this chain.")
+			.setDesc("When enabled, the 'auto-populate chains' command will scan the vault and add matching files to this chain.")
 			.addToggle((toggle) =>
 				toggle.setValue(chain.autoPopulateEnabled ?? false).onChange(async (value) => {
 					const c = this.plugin.settings.chains[idx];
@@ -443,8 +447,6 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 		const chain = this.plugin.settings.chains[chainIdx];
 		if (!chain) return;
 
-		const rules: FrontmatterRule[] = chain[field] ?? [];
-
 		const wrapper = containerEl.createEl("div", { cls: "chain-rule-list" });
 		wrapper.createEl("p", { text: label, cls: "setting-item-name" });
 		wrapper.createEl("p", { text: desc, cls: "setting-item-description" });
@@ -467,7 +469,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 					const c = this.plugin.settings.chains[chainIdx];
 					if (c) {
 						if (!c[field]) c[field] = [];
-						c[field]![ruleIdx]!.key = keyInput.value.trim();
+						c[field][ruleIdx]!.key = keyInput.value.trim();
 						await this.plugin.saveSettings();
 					}
 				});
@@ -483,7 +485,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 					if (c) {
 						if (!c[field]) c[field] = [];
 						const trimmed = valInput.value.trim();
-						c[field]![ruleIdx]!.value = trimmed || undefined;
+						c[field][ruleIdx]!.value = trimmed || undefined;
 						await this.plugin.saveSettings();
 					}
 				});
@@ -503,12 +505,12 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 
 		refresh();
 
-		const addBtn = wrapper.createEl("button", { text: "+ Add rule", cls: "chain-rule-add" });
+		const addBtn = wrapper.createEl("button", { text: "+ add rule", cls: "chain-rule-add" });
 		addBtn.addEventListener("click", async () => {
 			const c = this.plugin.settings.chains[chainIdx];
 			if (c) {
 				if (!c[field]) c[field] = [];
-				c[field]!.push({ key: "" });
+				c[field].push({ key: "" });
 				await this.plugin.saveSettings();
 				refresh();
 			}
@@ -518,12 +520,12 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 	// ── Linear settings ──────────────────────────────────────────────────────
 
 	private renderLinearSettings(containerEl: HTMLElement): void {
-		containerEl.createEl("h2", { text: "Linear integration" });
+		new Setting(containerEl).setName("Linear integration").setHeading();
 
 		// Issue folder
 		new Setting(containerEl)
 			.setName("Issue folder")
-			.setDesc("Folder where imported Linear issues are created.")
+			.setDesc("Folder where imported linear issues are created.")
 			.addText((text) =>
 				text
 					.setPlaceholder("Linear")
@@ -537,7 +539,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 		// Sync on open
 		new Setting(containerEl)
 			.setName("Sync on open")
-			.setDesc("Pull status updates from Linear when Obsidian opens.")
+			.setDesc("Pull status updates from linear when Obsidian opens.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.linearSyncOnOpen).onChange(async (value) => {
 					this.plugin.settings.linearSyncOnOpen = value;
@@ -548,7 +550,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 		// Sync interval
 		new Setting(containerEl)
 			.setName("Auto-sync interval (minutes)")
-			.setDesc("Poll Linear for updates on this interval. Set to 0 to disable.")
+			.setDesc("Poll linear for updates on this interval. Set to 0 to disable.")
 			.addSlider((slider) =>
 				slider
 					.setLimits(0, 120, 15)
@@ -561,9 +563,9 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Workspaces" });
+		new Setting(containerEl).setName("Workspaces").setHeading();
 		containerEl.createEl("p", {
-			text: "Each workspace connects to one Linear organization. You can use a Personal API key (paste from Linear → Settings → API) or OAuth.",
+			text: "Each workspace connects to one linear organization. You can use a personal API key (paste from linear → settings → API) or OAUTH.",
 			cls: "setting-item-description",
 		});
 
@@ -581,7 +583,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 						authType: "apiKey",
 					});
 					await this.plugin.saveSettings();
-					this.display();
+					this.refresh();
 				})
 		);
 	}
@@ -602,13 +604,13 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			const section = container.createDiv({ cls: "linear-workspace-section" });
 
 			const header = section.createDiv({ cls: "chain-schema-header" });
-			header.createEl("h4", { text: ws.name || `Workspace ${idx + 1}` });
+			new Setting(header).setName("").setHeading();
 			const removeBtn = header.createEl("button", { text: "Remove", cls: "chain-schema-remove-btn" });
 			removeBtn.addEventListener("click", async () => {
 				this.plugin.settings.linearWorkspaces.splice(idx, 1);
 				await this.plugin.saveSettings();
 				this.plugin.linearManager?.refreshClients();
-				this.display();
+				this.refresh();
 			});
 
 			// Workspace ID
@@ -617,7 +619,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 				.setDesc("Short slug used as the frontmatter key (e.g. \"acme\"). Cannot be changed after importing issues.")
 				.addText((text) =>
 					text
-						.setPlaceholder("acme")
+						.setPlaceholder("Acme")
 						.setValue(ws.id)
 						.onChange(async (value) => {
 							this.plugin.settings.linearWorkspaces[idx]!.id = value.trim() || ws.id;
@@ -628,10 +630,10 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			// Display name
 			new Setting(section)
 				.setName("Name")
-				.setDesc("Display name shown in the Linear panel.")
+				.setDesc("Display name shown in the linear panel.")
 				.addText((text) =>
 					text
-						.setPlaceholder("Acme Corp")
+						.setPlaceholder("Acme corp")
 						.setValue(ws.name)
 						.onChange(async (value) => {
 							this.plugin.settings.linearWorkspaces[idx]!.name = value.trim() || "Workspace";
@@ -645,24 +647,24 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 				.setDesc("How to authenticate with this workspace.")
 				.addDropdown((drop) => {
 					drop.addOption("apiKey", "Personal API key");
-					drop.addOption("oauth", "OAuth");
+					drop.addOption("oauth", "OAUTH");
 					drop.setValue(ws.authType);
 					drop.onChange(async (value) => {
 						this.plugin.settings.linearWorkspaces[idx]!.authType = value as "apiKey" | "oauth";
 						await this.plugin.saveSettings();
 						this.plugin.linearManager?.refreshClients();
-						this.display();
+						this.refresh();
 					});
 				});
 
 			if (ws.authType === "apiKey") {
 				new Setting(section)
 					.setName("API key")
-					.setDesc("Personal API key from Linear → Settings → API.")
+					.setDesc("Personal API key from linear → settings → API.")
 					.addText((text) => {
 						text.inputEl.type = "password";
 						text
-							.setPlaceholder("lin_api_…")
+							.setPlaceholder("Lin_API_…")
 							.setValue(ws.apiKey ?? "")
 							.onChange(async (value) => {
 								this.plugin.settings.linearWorkspaces[idx]!.apiKey = value.trim() || undefined;
@@ -673,7 +675,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 			} else {
 				// OAuth
 				const oauthSetting = new Setting(section)
-					.setName("OAuth")
+					.setName("OAUTH")
 					.setDesc(
 						ws.oauthToken
 							? "Connected. Click to reconnect."
@@ -681,7 +683,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 					);
 				oauthSetting.addButton((btn) => {
 					btn.setButtonText(ws.oauthToken ? "Reconnect" : "Connect with Linear");
-					if (ws.oauthToken) btn.setWarning();
+					if (ws.oauthToken) btn.setDestructive();
 					else btn.setCta();
 					btn.onClick(() => {
 						this.plugin.startLinearOAuth(ws.id);
@@ -691,13 +693,13 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 					oauthSetting.addButton((btn) =>
 						btn
 							.setButtonText("Disconnect")
-							.setWarning()
+							.setDestructive()
 							.onClick(async () => {
 								this.plugin.settings.linearWorkspaces[idx]!.oauthToken = undefined;
 								this.plugin.settings.linearWorkspaces[idx]!.oauthRefreshToken = undefined;
 								await this.plugin.saveSettings();
 								this.plugin.linearManager?.refreshClients();
-								this.display();
+								this.refresh();
 							})
 					);
 				}

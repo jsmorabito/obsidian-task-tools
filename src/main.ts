@@ -1,4 +1,4 @@
-import { App, MarkdownView, Menu, Modal, Notice, Plugin, Setting, TFile, setIcon, setTooltip, ButtonComponent } from "obsidian";
+import { App, MarkdownView, Menu, Modal, Notice, Plugin, Setting, TFile, setIcon, setTooltip } from "obsidian";
 
 /** Frontmatter key written when a task is marked done. */
 const COMPLETED_DATE_KEY = "completedDate";
@@ -12,7 +12,6 @@ import {
 import { CHAIN_VIEW_TYPE, ChainView, QuickAddFileModal } from "./chainView";
 import { NewTaskModal } from "./newTaskModal";
 import { ChainSuggestModal } from "./chainSuggestModal";
-import { ChainInstanceSuggestModal } from "./chainInstanceSuggestModal";
 import type { ChainDefinition, ChainItem, FrontmatterRule } from "./types";
 import { LinearManager } from "./linear/manager";
 import { LINEAR_VIEW_TYPE, LinearView } from "./linear/linearView";
@@ -83,6 +82,12 @@ export default class TaskToolsPlugin extends Plugin {
 	 */
 	private chainIndex: Map<string, Set<string>> = new Map();
 
+	/** Open a file without replacing a pinned leaf. getLeaf(false) returns the most recent unpinned leaf, or a new tab if all leaves are pinned. */
+	async openFileRespectingPin(file: TFile): Promise<void> {
+		const leaf = this.app.workspace.getLeaf(false);
+		await leaf.openFile(file);
+	}
+
 	async onload() {
 		await this.loadSettings();
 
@@ -131,7 +136,6 @@ export default class TaskToolsPlugin extends Plugin {
 
 		// Chain breadcrumb — standalone div to the left of the status bar
 		this.chainStatusBarItem = document.body.createDiv({ cls: "chain-status-bar-item" });
-		this.chainStatusBarItem.style.cursor = "pointer";
 		setTooltip(this.chainStatusBarItem, "Click to switch chain", { delay: 0, placement: "top" });
 		this.chainStatusBarItem.addEventListener("click", () => {
 			this.openStatusBarChainPicker();
@@ -205,7 +209,7 @@ export default class TaskToolsPlugin extends Plugin {
 		// Command: open Linear panel
 		this.addCommand({
 			id: "open-linear-view",
-			name: "Open Linear panel",
+			name: "Open linear panel",
 			callback: () => { void this.openLinearView(); },
 		});
 
@@ -215,7 +219,7 @@ export default class TaskToolsPlugin extends Plugin {
 			name: "Linear: sync all linked notes",
 			callback: async () => {
 				if (!this.linearManager?.getConfiguredWorkspaces().length) {
-					new Notice("No Linear workspaces configured.");
+					new Notice("No linear workspaces configured.");
 					return;
 				}
 				const { updated, errors } = await this.linearManager.pullAll();
@@ -245,7 +249,7 @@ export default class TaskToolsPlugin extends Plugin {
 		});
 
 		// Ribbon icon for Linear panel
-		this.addRibbonIcon("external-link", "Open Linear panel", () => {
+		this.addRibbonIcon("external-link", "Open linear panel", () => {
 			void this.openLinearView();
 		});
 
@@ -271,7 +275,7 @@ export default class TaskToolsPlugin extends Plugin {
 				);
 				if (chains.length === 0) {
 					new Notice(
-						"No chains have item creation config. Add an item folder or frontmatter key to a chain schema in Settings."
+						"No chains have item creation config. Add an item folder or frontmatter key to a chain schema in settings."
 					);
 					return;
 				}
@@ -377,7 +381,7 @@ export default class TaskToolsPlugin extends Plugin {
 			callback: () => {
 				const eligible = this.settings.chains.filter((c) => c.autoPopulateEnabled);
 				if (eligible.length === 0) {
-					new Notice("No chains have auto-populate enabled. Configure it in Settings.");
+					new Notice("No chains have auto-populate enabled. Configure it in settings.");
 					return;
 				}
 				if (eligible.length === 1 && eligible[0]) {
@@ -477,13 +481,13 @@ export default class TaskToolsPlugin extends Plugin {
 		const existing = this.app.workspace.getLeavesOfType(LINEAR_VIEW_TYPE);
 		const firstExisting = existing[0];
 		if (firstExisting) {
-			this.app.workspace.revealLeaf(firstExisting);
+			void this.app.workspace.revealLeaf(firstExisting);
 			return;
 		}
 		const leaf = this.app.workspace.getRightLeaf(false);
 		if (leaf !== null) {
 			await leaf.setViewState({ type: LINEAR_VIEW_TYPE, active: true });
-			this.app.workspace.revealLeaf(leaf);
+			void this.app.workspace.revealLeaf(leaf);
 		}
 	}
 
@@ -513,8 +517,8 @@ export default class TaskToolsPlugin extends Plugin {
 			await this.linearManager?.storeOAuthToken(workspaceId, token);
 			new Notice("Linear workspace connected.");
 			// Refresh settings UI
-			(this.app as any).setting?.open?.();
-			(this.app as any).setting?.openTabById?.("obsidian-task-tools");
+			(this.app as { setting?: { open?: () => void } }).setting?.open?.();
+			(this.app as { setting?: { openTabById?: (id: string) => void } }).setting?.openTabById?.("obsidian-task-tools");
 		}).open();
 	}
 
@@ -549,13 +553,13 @@ export default class TaskToolsPlugin extends Plugin {
 		// Remove stale entries for this file first
 		this.removeFileFromIndex(file.path);
 
-		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
 		if (!fm) return;
 
 		for (const chain of this.settings.chains) {
 			const chainId = fm[chain.idKey];
 			if (chainId == null) continue;
-			const key = this.indexKey(chain.idKey, String(chainId));
+			const key = this.indexKey(chain.idKey, String(chainId as string | number | boolean));
 			if (!this.chainIndex.has(key)) this.chainIndex.set(key, new Set());
 			this.chainIndex.get(key)!.add(file.path);
 		}
@@ -666,7 +670,7 @@ export default class TaskToolsPlugin extends Plugin {
 		let maxPos = 0;
 		for (const peer of peers) {
 			const pos = Number(
-				this.app.metadataCache.getFileCache(peer)?.frontmatter?.[chain.positionKey]
+				(this.app.metadataCache.getFileCache(peer)?.frontmatter as Record<string, unknown> | undefined)?.[chain.positionKey]
 			);
 			if (!isNaN(pos) && pos > maxPos) maxPos = pos;
 		}
@@ -676,7 +680,7 @@ export default class TaskToolsPlugin extends Plugin {
 		// changed event fires, so reading it after processFrontMatter would race.
 		const shouldSetCurrent = !this.findCurrentTask(chain);
 
-		await this.app.fileManager.processFrontMatter(file, (front) => {
+		await this.app.fileManager.processFrontMatter(file, (front: Record<string, unknown>) => {
 			front[chain.idKey] = chainId;
 			front[chain.positionKey] = nextPos;
 			if (shouldSetCurrent) {
@@ -692,7 +696,7 @@ export default class TaskToolsPlugin extends Plugin {
 	 * If the file was the current task, promotes the next sibling before removal.
 	 */
 	async removeFileFromChain(file: TFile, chain: ChainDefinition): Promise<void> {
-		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
 		if (!fm || fm[chain.idKey] == null) {
 			new Notice(`"${file.basename}" is not in chain "${chain.name}".`);
 			return;
@@ -712,7 +716,7 @@ export default class TaskToolsPlugin extends Plugin {
 			}
 		}
 
-		await this.app.fileManager.processFrontMatter(file, (front) => {
+		await this.app.fileManager.processFrontMatter(file, (front: Record<string, unknown>) => {
 			delete front[chain.idKey];
 			delete front[chain.positionKey];
 			if (wasCurrent) delete front[chain.statusKey];
@@ -729,30 +733,30 @@ export default class TaskToolsPlugin extends Plugin {
 	}
 
 	getChainsForFile(file: TFile): ChainDefinition[] {
-		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
 		if (!fm) return [];
 		return this.settings.chains.filter((chain) => fm[chain.idKey] != null);
 	}
 
 	async setCurrentTask(file: TFile, chain: ChainDefinition): Promise<void> {
-		const chainId = this.app.metadataCache.getFileCache(file)?.frontmatter?.[chain.idKey];
+		const chainId = (this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined)?.[chain.idKey];
 		if (!chainId) return;
 
 		const siblings = this.resolveFiles(
-			this.chainIndex.get(this.indexKey(chain.idKey, String(chainId))) ?? new Set()
+			this.chainIndex.get(this.indexKey(chain.idKey, String(chainId as string | number | boolean))) ?? new Set()
 		);
 
 		for (const f of siblings) {
 			if (f.path === file.path) continue;
-			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined;
 			if (fm?.[chain.statusKey] === chain.currentStatusValue) {
-				await this.app.fileManager.processFrontMatter(f, (front) => {
+				await this.app.fileManager.processFrontMatter(f, (front: Record<string, unknown>) => {
 					delete front[chain.statusKey];
 				});
 			}
 		}
 
-		await this.app.fileManager.processFrontMatter(file, (front) => {
+		await this.app.fileManager.processFrontMatter(file, (front: Record<string, unknown>) => {
 			front[chain.statusKey] = chain.currentStatusValue;
 			// clear ready flag if it was set
 		});
@@ -767,9 +771,8 @@ export default class TaskToolsPlugin extends Plugin {
 		const currentTask = this.findCurrentTask(chain);
 		if (!currentTask) return;
 		const items = this.buildChain(currentTask, chain);
-		const readyVal = chain.readyStatusValue ?? "ready";
 		for (const item of items) {
-			await this.app.fileManager.processFrontMatter(item.file, (front) => {
+			await this.app.fileManager.processFrontMatter(item.file, (front: Record<string, unknown>) => {
 				if (item.role === "previous") {
 					front[chain.statusKey] = chain.completedStatusValue;
 				} else if (item.role === "current") {
@@ -808,10 +811,10 @@ export default class TaskToolsPlugin extends Plugin {
 
 		if (!needsReposition) {
 			// Just update the status in place
-			await this.app.fileManager.processFrontMatter(file, (front) => {
+			await this.app.fileManager.processFrontMatter(file, (front: Record<string, unknown>) => {
 				if (newStatus === "done") {
 					front[chain.statusKey] = chain.completedStatusValue;
-					front[COMPLETED_DATE_KEY] = (this.app as any).moment().format("YYYY-MM-DD");
+					front[COMPLETED_DATE_KEY] = (window as unknown as { moment: () => { format: (s: string) => string } }).moment().format("YYYY-MM-DD");
 				} else if (newStatus === "ready") {
 					front[chain.statusKey] = chain.readyStatusValue ?? "ready";
 					delete front[COMPLETED_DATE_KEY];
@@ -843,14 +846,14 @@ export default class TaskToolsPlugin extends Plugin {
 		for (let i = 0; i < without.length; i++) {
 			const itm = without[i]!;
 			const isTarget = itm.file.path === file.path;
-			await this.app.fileManager.processFrontMatter(itm.file, (front) => {
+			await this.app.fileManager.processFrontMatter(itm.file, (front: Record<string, unknown>) => {
 				front[chain.positionKey] = i + 1;
 				if (itm.role === "current") {
 					front[chain.statusKey] = chain.currentStatusValue;
 				} else if (isTarget) {
 					if (newStatus === "done") {
 						front[chain.statusKey] = chain.completedStatusValue;
-						front[COMPLETED_DATE_KEY] = (this.app as any).moment().format("YYYY-MM-DD");
+						front[COMPLETED_DATE_KEY] = (window as unknown as { moment: () => { format: (s: string) => string } }).moment().format("YYYY-MM-DD");
 					} else if (newStatus === "ready") {
 						front[chain.statusKey] = readyVal;
 						delete front[COMPLETED_DATE_KEY];
@@ -865,10 +868,10 @@ export default class TaskToolsPlugin extends Plugin {
 	}
 
 	async toggleReadyTask(file: TFile, chain: ChainDefinition): Promise<void> {
-		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
 		const readyValue = chain.readyStatusValue ?? "ready";
 		const isAlreadyReady = fm?.[chain.statusKey] === readyValue;
-		await this.app.fileManager.processFrontMatter(file, (front) => {
+		await this.app.fileManager.processFrontMatter(file, (front: Record<string, unknown>) => {
 			if (isAlreadyReady) {
 				delete front[chain.statusKey];
 			} else {
@@ -880,7 +883,7 @@ export default class TaskToolsPlugin extends Plugin {
 	isTaskFile(file: TFile): boolean {
 		const { taskFrontmatterKey, taskFrontmatterValue } = this.settings;
 		if (!taskFrontmatterKey) return false;
-		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
 		if (!fm || !(taskFrontmatterKey in fm)) return false;
 		if (taskFrontmatterValue) {
 			return String(fm[taskFrontmatterKey]) === taskFrontmatterValue;
@@ -893,7 +896,7 @@ export default class TaskToolsPlugin extends Plugin {
 		for (const [key, paths] of this.chainIndex) {
 			if (!key.startsWith(`${chain.idKey}::`)) continue;
 			for (const f of this.resolveFiles(paths)) {
-				const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+				const fm = this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined;
 				if (fm?.[chain.statusKey] === chain.currentStatusValue) return f;
 			}
 		}
@@ -902,19 +905,20 @@ export default class TaskToolsPlugin extends Plugin {
 
 	buildChain(currentFile: TFile, chain: ChainDefinition): ChainItem[] {
 		const currentCache = this.app.metadataCache.getFileCache(currentFile);
-		const chainId = currentCache?.frontmatter?.[chain.idKey];
-		const currentOrder = Number(currentCache?.frontmatter?.[chain.positionKey]);
+		const currentFm = currentCache?.frontmatter as Record<string, unknown> | undefined;
+		const chainId = currentFm?.[chain.idKey];
+		const currentOrder = Number(currentFm?.[chain.positionKey]);
 
 		if (!chainId) return [];
 
 		const peers = this.resolveFiles(
-			this.chainIndex.get(this.indexKey(chain.idKey, String(chainId))) ?? new Set()
+			this.chainIndex.get(this.indexKey(chain.idKey, String(chainId as string | number | boolean))) ?? new Set()
 		);
 
 		const items: ChainItem[] = [];
 
 		for (const file of peers) {
-			const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+			const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
 			if (!fm) continue;
 
 			const fileOrder = Number(fm[chain.positionKey]);
@@ -976,9 +980,9 @@ export default class TaskToolsPlugin extends Plugin {
 		// Step 2 — mark done in all chains this file belongs to (after snapshot)
 		const allChains = this.getChainsForFile(currentTask);
 		for (const c of allChains) {
-			await this.app.fileManager.processFrontMatter(currentTask, (front) => {
+			await this.app.fileManager.processFrontMatter(currentTask, (front: Record<string, unknown>) => {
 				front[c.statusKey] = c.completedStatusValue;
-				front[COMPLETED_DATE_KEY] = (this.app as any).moment().format("YYYY-MM-DD");
+				front[COMPLETED_DATE_KEY] = (window as unknown as { moment: () => { format: (s: string) => string } }).moment().format("YYYY-MM-DD");
 			});
 		}
 
@@ -994,8 +998,7 @@ export default class TaskToolsPlugin extends Plugin {
 
 		// Step 3 — set next as current and open it
 		await this.setCurrentTask(next.file, chain);
-		const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-		if (leaf) await leaf.openFile(next.file);
+		await this.openFileRespectingPin(next.file);
 	}
 
 	/** Returns true if `fm` satisfies a single frontmatter rule. */
@@ -1048,13 +1051,13 @@ export default class TaskToolsPlugin extends Plugin {
 		const existing = this.app.workspace.getLeavesOfType(CHAIN_VIEW_TYPE);
 		const firstExisting = existing[0];
 		if (firstExisting) {
-			this.app.workspace.revealLeaf(firstExisting);
+			void this.app.workspace.revealLeaf(firstExisting);
 			return;
 		}
 		const leaf = this.app.workspace.getRightLeaf(false);
 		if (leaf !== null) {
 			await leaf.setViewState({ type: CHAIN_VIEW_TYPE, active: true });
-			this.app.workspace.revealLeaf(leaf);
+			void this.app.workspace.revealLeaf(leaf);
 		}
 	}
 
@@ -1079,9 +1082,9 @@ export default class TaskToolsPlugin extends Plugin {
 
 		// Reset all positional properties before re-applying
 		// Use "auto" (not "") so we override the stylesheet's `right: 0` default
-		el.style.left = "auto";
-		el.style.right = "auto";
-		el.style.transform = "";
+		el.style.left = `auto`;
+		el.style.right = `auto`;
+		el.style.transform = ``;
 
 		if (position === "right") {
 			const statusBar = document.querySelector<HTMLElement>(".status-bar");
@@ -1090,11 +1093,11 @@ export default class TaskToolsPlugin extends Plugin {
 			// 4px gap between chain bar and status bar
 			el.style.right = `${window.innerWidth - rect.left + 4}px`;
 		} else if (position === "center") {
-			el.style.left = "50%";
-			el.style.transform = "translateX(-50%)";
+			el.style.left = `50%`;
+			el.style.transform = `translateX(-50%)`;
 		} else {
 			// left
-			el.style.left = "12px";
+			el.style.left = `12px`;
 		}
 	}
 
@@ -1216,7 +1219,7 @@ export default class TaskToolsPlugin extends Plugin {
 			const [moved] = reordered.splice(fromIdx, 1);
 			reordered.splice(toIdx, 0, moved!);
 			for (let i = 0; i < reordered.length; i++) {
-				await this.app.fileManager.processFrontMatter(reordered[i]!.file, (fm) => {
+				await this.app.fileManager.processFrontMatter(reordered[i]!.file, (fm: Record<string, unknown>) => {
 					fm[chain.positionKey] = i + 1;
 				});
 			}
@@ -1245,14 +1248,12 @@ export default class TaskToolsPlugin extends Plugin {
 				setTooltip(node, item.file.basename, { delay: 0, placement: "top" });
 				node.addEventListener("click", async (e) => {
 					e.stopPropagation();
-					const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-					if (leaf) await leaf.openFile(item.file);
+					await this.openFileRespectingPin(item.file);
 				});
 				node.addEventListener("keydown", async (e) => {
 					if (e.key === "Enter" || e.key === " ") {
 						e.preventDefault();
-						const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-						if (leaf) await leaf.openFile(item.file);
+						await this.openFileRespectingPin(item.file);
 					}
 				});
 				node.addEventListener("contextmenu", (e) => {
@@ -1287,8 +1288,7 @@ export default class TaskToolsPlugin extends Plugin {
 					}
 					menu.addItem((mi) =>
 						mi.setTitle("Open file").setIcon("file-open").onClick(async () => {
-							const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-							if (leaf) await leaf.openFile(item.file);
+							await this.openFileRespectingPin(item.file);
 						})
 					);
 					menu.addItem((mi) =>
@@ -1341,7 +1341,6 @@ export default class TaskToolsPlugin extends Plugin {
 					if (dragSrcIdx < 0 || dragSrcIdx === idx) return;
 					const rect = node.getBoundingClientRect();
 					const insertAfter = e.clientX >= rect.left + rect.width / 2;
-					const toIdx = insertAfter ? idx + (dragSrcIdx > idx ? 0 : 0) : idx - (dragSrcIdx < idx ? 0 : 0);
 					// Compute clean insertion index
 					let target = idx;
 					if (insertAfter && dragSrcIdx < idx) target = idx;
@@ -1353,14 +1352,12 @@ export default class TaskToolsPlugin extends Plugin {
 
 				node.addEventListener("click", async (e) => {
 					e.stopPropagation();
-					const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-					if (leaf) await leaf.openFile(item.file);
+					await this.openFileRespectingPin(item.file);
 				});
 				node.addEventListener("keydown", async (e) => {
 					if (e.key === "Enter" || e.key === " ") {
 						e.preventDefault();
-						const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-						if (leaf) await leaf.openFile(item.file);
+						await this.openFileRespectingPin(item.file);
 					}
 				});
 				node.addEventListener("contextmenu", (e) => {
@@ -1396,8 +1393,7 @@ export default class TaskToolsPlugin extends Plugin {
 					}
 					menu.addItem((mi) =>
 						mi.setTitle("Open file").setIcon("file-open").onClick(async () => {
-							const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-							if (leaf) await leaf.openFile(item.file);
+							await this.openFileRespectingPin(item.file);
 						})
 					);
 					menu.addItem((mi) =>
@@ -1416,7 +1412,7 @@ export default class TaskToolsPlugin extends Plugin {
 			const maxVisible = this.settings.statusBarDisplayMode === "filenames"
 				? (this.settings.statusBarMaxItems ?? 5)
 				: (this.settings.statusBarDotsCount ?? 7);
-			const itemNodes = Array.from(scrollEl.querySelectorAll(".chain-sb-node")) as HTMLElement[];
+			const itemNodes = Array.from(scrollEl.querySelectorAll<HTMLElement>(".chain-sb-node"));
 			if (itemNodes.length <= maxVisible) return;
 
 			// offsetLeft of each node is relative to the fixed-position ancestor.
@@ -1554,7 +1550,7 @@ class CreateChainModal extends Modal {
 		new Setting(contentEl)
 			.setName("Chain name")
 			.addText((text) => {
-				text.setPlaceholder("e.g. Project Alpha");
+				text.setPlaceholder("E.g. Project alpha");
 				text.onChange((v) => { nameValue = v; });
 				// Focus after the modal DOM is ready
 				setTimeout(() => text.inputEl.focus(), 0);
@@ -1596,9 +1592,9 @@ class LinearPushStateModal extends Modal {
 
 	onOpen(): void {
 		const { contentEl } = this;
-		contentEl.createEl("h2", { text: "Push status to Linear" });
+		contentEl.createEl("h2", { text: "Push status to linear" });
 		contentEl.createEl("p", {
-			text: "Enter the Linear state name to apply to this issue (e.g. \"In Progress\", \"Done\").",
+			text: "Enter the linear state name to apply to this issue (e.g. \"in progress\", \"done\").",
 			cls: "chain-create-modal-desc",
 		});
 
@@ -1607,7 +1603,7 @@ class LinearPushStateModal extends Modal {
 		new Setting(contentEl)
 			.setName("State name")
 			.addText((text) => {
-				text.setPlaceholder("In Progress");
+				text.setPlaceholder("In progress");
 				text.onChange((v) => { value = v; });
 				setTimeout(() => text.inputEl.focus(), 0);
 				text.inputEl.addEventListener("keydown", async (e: KeyboardEvent) => {
@@ -1646,9 +1642,9 @@ class LinearOAuthModal extends Modal {
 
 	onOpen(): void {
 		const { contentEl } = this;
-		contentEl.createEl("h2", { text: "Connect Linear workspace" });
+		contentEl.createEl("h2", { text: "Connect linear workspace" });
 		contentEl.createEl("p", {
-			text: "For now, paste a Personal API key or an OAuth access token obtained from Linear. Full browser-based OAuth (one-click) will be added in a future update.",
+			text: "For now, paste a personal API key or an OAUTH access token obtained from linear. Full browser-based OAUTH (one-click) will be added in a future update.",
 			cls: "chain-create-modal-desc",
 		});
 
@@ -1658,7 +1654,7 @@ class LinearOAuthModal extends Modal {
 			.setName("Access token")
 			.addText((text) => {
 				text.inputEl.type = "password";
-				text.setPlaceholder("lin_api_… or OAuth token");
+				text.setPlaceholder("Lin_API_… or OAUTH token");
 				text.onChange((v) => { token = v; });
 				setTimeout(() => text.inputEl.focus(), 0);
 			});

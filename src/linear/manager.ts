@@ -139,7 +139,7 @@ export class LinearManager {
 	/** Update only the Linear-managed frontmatter keys on an existing note. */
 	private async updateNoteFrontmatter(file: TFile, issue: LinearIssueStub): Promise<void> {
 		const now = new Date().toISOString();
-		await this.app.fileManager.processFrontMatter(file, (fm) => {
+		await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
 			fm[LINEAR_FM.stateName] = issue.stateName;
 			fm[LINEAR_FM.stateType] = issue.stateType;
 			fm[LINEAR_FM.priority] = issue.priority;
@@ -227,7 +227,7 @@ export class LinearManager {
 			await client.updateIssueState(issueId, target.id);
 			// Reflect the update locally
 			const now = new Date().toISOString();
-			await this.app.fileManager.processFrontMatter(file, (fmw) => {
+			await this.app.fileManager.processFrontMatter(file, (fmw: Record<string, unknown>) => {
 				fmw[LINEAR_FM.stateName] = targetStateName;
 				fmw[LINEAR_FM.lastSynced] = now;
 			});

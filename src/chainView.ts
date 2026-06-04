@@ -21,6 +21,7 @@ export class QuickAddFileModal extends FuzzySuggestModal<TFile> {
 		return file.basename;
 	}
 
+	// eslint-disable-next-line @typescript-eslint/no-misused-promises
 	async onChooseItem(file: TFile): Promise<void> {
 		await this.plugin.addFileToChain(file, this.chain);
 	}
@@ -97,7 +98,7 @@ export class ChainView extends ItemView {
 
 		if (chains.length === 0) {
 			container.createEl("p", {
-				text: "No chain schemas defined. Add one in Settings.",
+				text: "No chain schemas defined. Add one in settings.",
 				cls: "chain-view-empty",
 			});
 			return;
@@ -257,7 +258,7 @@ export class ChainView extends ItemView {
 					for (let i = 0; i < newOrder.length; i++) {
 						const entry = newOrder[i];
 						if (!entry) continue;
-						await this.app.fileManager.processFrontMatter(entry.file, (front) => {
+						await this.app.fileManager.processFrontMatter(entry.file, (front: Record<string, unknown>) => {
 							front[chain.positionKey] = i + 1;
 						});
 					}
@@ -302,7 +303,7 @@ export class ChainView extends ItemView {
 						}
 						for (let i = 0; i < newItems.length; i++) {
 							const itm = newItems[i]!;
-							await this.app.fileManager.processFrontMatter(itm.file, (front) => {
+							await this.app.fileManager.processFrontMatter(itm.file, (front: Record<string, unknown>) => {
 								front[chain.positionKey] = i + 1;
 								if (newCurrentIdx === -1 || i < newCurrentIdx) {
 									front[chain.statusKey] = chain.completedStatusValue;
@@ -322,7 +323,7 @@ export class ChainView extends ItemView {
 						}
 						for (let i = 0; i < newItems.length; i++) {
 							const itm = newItems[i]!;
-							await this.app.fileManager.processFrontMatter(itm.file, (front) => {
+							await this.app.fileManager.processFrontMatter(itm.file, (front: Record<string, unknown>) => {
 								front[chain.positionKey] = i + 1;
 								if (i < newCurrentIdx) {
 									// Preserve: done stays done, todo stays todo
@@ -343,7 +344,7 @@ export class ChainView extends ItemView {
 						// Normal case: a non-current item was dragged.
 						for (let i = 0; i < newItems.length; i++) {
 							const itm = newItems[i]!;
-							await this.app.fileManager.processFrontMatter(itm.file, (front) => {
+							await this.app.fileManager.processFrontMatter(itm.file, (front: Record<string, unknown>) => {
 								front[chain.positionKey] = i + 1;
 								if (i < currentIdx) {
 									front[chain.statusKey] = chain.completedStatusValue;
@@ -378,8 +379,7 @@ export class ChainView extends ItemView {
 
 				// Click to open
 				const open = async () => {
-					const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-					if (leaf) await leaf.openFile(item.file);
+					await this.app.workspace.getLeaf(false).openFile(item.file);
 				};
 				row.addEventListener("click", open);
 
@@ -501,8 +501,7 @@ export class ChainView extends ItemView {
 			cls: "chain-view-detail__name chain-view-item--clickable",
 		});
 		nameEl.addEventListener("click", async () => {
-			const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-			if (leaf) await leaf.openFile(item.file);
+			await this.app.workspace.getLeaf(false).openFile(item.file);
 		});
 
 		const roleLabel = item.role === "previous" ? "Done" : item.role === "current" ? "Current" : item.role === "ready" ? "Ready" : "Todo";
@@ -565,10 +564,10 @@ export class ChainView extends ItemView {
 		const orderA = a.order;
 		const orderB = b.order;
 
-		await this.app.fileManager.processFrontMatter(a.file, (front) => {
+		await this.app.fileManager.processFrontMatter(a.file, (front: Record<string, unknown>) => {
 			front[chain.positionKey] = orderB;
 		});
-		await this.app.fileManager.processFrontMatter(b.file, (front) => {
+		await this.app.fileManager.processFrontMatter(b.file, (front: Record<string, unknown>) => {
 			front[chain.positionKey] = orderA;
 		});
 	}

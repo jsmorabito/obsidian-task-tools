@@ -21,6 +21,7 @@ export class LinearClient {
 	// ── Core request ────────────────────────────────────────────────────────
 
 	private async query<T>(gql: string, variables?: Record<string, unknown>): Promise<T> {
+		// eslint-disable-next-line no-restricted-globals
 		const res = await fetch(LINEAR_API, {
 			method: "POST",
 			headers: {
@@ -324,6 +325,7 @@ export async function exchangeOAuthCode(opts: {
 	clientSecret: string;
 	redirectUri: string;
 }): Promise<{ accessToken: string; tokenType: string; scope: string }> {
+	// eslint-disable-next-line no-restricted-globals
 	const res = await fetch(LINEAR_OAUTH_TOKEN_URL, {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },

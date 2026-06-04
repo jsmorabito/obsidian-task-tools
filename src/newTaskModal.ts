@@ -145,9 +145,9 @@ export class NewTaskModal extends Modal {
 	private getExistingChainIds(chain: ChainDefinition): string[] {
 		const ids = new Set<string>();
 		for (const file of this.app.vault.getMarkdownFiles()) {
-			const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+			const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
 			const id = fm?.[chain.idKey];
-			if (id != null) ids.add(String(id));
+			if (id != null) ids.add(String(id as string | number | boolean));
 		}
 		return Array.from(ids).sort();
 	}
@@ -286,7 +286,7 @@ export class NewTaskModal extends Modal {
 
 		let templateFm: Record<string, unknown> = {};
 		try {
-			const parsed = parseYaml(fmBlock);
+			const parsed: unknown = parseYaml(fmBlock);
 			if (parsed && typeof parsed === "object") {
 				templateFm = parsed as Record<string, unknown>;
 			}

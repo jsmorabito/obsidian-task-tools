@@ -128,8 +128,8 @@ export class LinearView extends ItemView {
 		setIcon(settingsBtn, "settings");
 		setTooltip(settingsBtn, "Linear settings", { delay: 0 });
 		settingsBtn.addEventListener("click", () => {
-			(this.app as any).setting?.open?.();
-			(this.app as any).setting?.openTabById?.("obsidian-task-tools");
+			(this.app as { setting?: { open?: () => void; openTabById?: (id: string) => void } }).setting?.open?.();
+			(this.app as { setting?: { open?: () => void; openTabById?: (id: string) => void } }).setting?.openTabById?.("obsidian-task-tools");
 		});
 	}
 
@@ -153,7 +153,7 @@ export class LinearView extends ItemView {
 		// Row 2: team picker + toggles
 		const row2 = bar.createDiv({ cls: "linear-view__filter-row linear-view__filter-row--meta" });
 
-		const teamSelect = row2.createEl("select", { cls: "linear-view__team-select dropdown" });
+		const teamSelect = row2.createEl("select", { cls: "linear-view__team-select" });
 		teamSelect.createEl("option", { value: "", text: "All teams" }).selected = !this.state.teamId;
 		for (const team of this.teams) {
 			const opt = teamSelect.createEl("option", { value: team.id, text: team.name });
@@ -211,7 +211,7 @@ export class LinearView extends ItemView {
 	/** Re-render only the issue list section without touching toolbar/filters. */
 	private renderIssueListOnly(): void {
 		const root = this.containerEl.children[1] as HTMLElement;
-		const content = root.querySelector(".linear-view__content") as HTMLElement | null;
+		const content = root.querySelector<HTMLElement>(".linear-view__content");
 		if (!content) return;
 		content.empty();
 		this.renderIssueList(content);
@@ -360,7 +360,7 @@ export class LinearView extends ItemView {
 
 		menu.addItem((item) =>
 			item
-				.setTitle("Open in Linear")
+				.setTitle("Open in linear")
 				.setIcon("external-link")
 				.onClick(() => window.open(issue.url, "_blank"))
 		);
@@ -410,6 +410,8 @@ export class LinearView extends ItemView {
 			this.teams = [];
 		}
 
+		// Re-render filters so the team select is populated with the fetched teams.
+		this.render();
 		await this.loadIssues();
 	}
 
@@ -421,7 +423,7 @@ export class LinearView extends ItemView {
 		this.loading = true;
 		// Full render only for the initial loading state (toolbar/filters not yet built)
 		const root = this.containerEl.children[1] as HTMLElement;
-		const existingContent = root.querySelector(".linear-view__content") as HTMLElement | null;
+		const existingContent = root.querySelector(".linear-view__content");
 		if (existingContent) {
 			existingContent.empty();
 			existingContent.createDiv({ cls: "linear-view__empty pane-empty", text: "Loading…" });

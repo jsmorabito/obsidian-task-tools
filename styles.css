@@ -16,6 +16,7 @@
 	color: var(--text-muted);
 	box-shadow: var(--shadow-s);
 	margin-right: var(--size-4-1);
+	cursor: pointer;
 }
 
 /* Scrollable items area — max-width is set dynamically via JS after layout */
