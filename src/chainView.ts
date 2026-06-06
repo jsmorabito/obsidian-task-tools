@@ -223,7 +223,10 @@ export class ChainView extends ItemView {
 				wrapper.addEventListener("dragstart", (e) => {
 					dragSrcIdx = idx;
 					wrapper.classList.add("is-dragging");
-					if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+					if (e.dataTransfer) {
+						e.dataTransfer.effectAllowed = "move";
+						e.dataTransfer.setData("text/plain", item.file.path);
+					}
 				});
 				wrapper.addEventListener("dragend", () => {
 					dragSrcIdx = null;
@@ -393,7 +396,10 @@ export class ChainView extends ItemView {
 				row.addEventListener("dragstart", (e) => {
 					dragSrcIdx = idx;
 					row.classList.add("is-dragging");
-					if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+					if (e.dataTransfer) {
+						e.dataTransfer.effectAllowed = "move";
+						e.dataTransfer.setData("text/plain", item.file.path);
+					}
 				});
 				row.addEventListener("dragend", () => {
 					dragSrcIdx = null;
