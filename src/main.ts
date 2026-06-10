@@ -1246,6 +1246,16 @@ export default class TaskToolsPlugin extends Plugin {
 				currentNode = node;
 				if (isOpen) openFileNode = node;
 				setTooltip(node, item.file.basename, { delay: 0, placement: "top" });
+				node.draggable = true;
+				node.addEventListener("dragstart", (e) => {
+					dragSrcIdx = idx;
+					e.dataTransfer?.setData("text/plain", item.file.path);
+					node.addClass("is-dragging");
+				});
+				node.addEventListener("dragend", () => {
+					dragSrcIdx = -1;
+					node.removeClass("is-dragging");
+				});
 				node.addEventListener("click", async (e) => {
 					e.stopPropagation();
 					await this.openFileRespectingPin(item.file);
@@ -1291,7 +1301,7 @@ export default class TaskToolsPlugin extends Plugin {
 				node.draggable = true;
 				node.addEventListener("dragstart", (e) => {
 					dragSrcIdx = idx;
-					e.dataTransfer?.setData("text/plain", String(idx));
+					e.dataTransfer?.setData("text/plain", item.file.path);
 					node.addClass("is-dragging");
 				});
 				node.addEventListener("dragend", () => {
