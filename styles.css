@@ -963,3 +963,104 @@
 	margin-bottom: var(--size-4-3);
 	overflow: hidden;
 }
+
+/* ── Checkbox icons ──────────────────────────────────────────────────────── */
+
+.tt-checkbox-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--checkbox-size);
+	height: var(--checkbox-size);
+	cursor: pointer;
+	transition: opacity 0.1s;
+	vertical-align: middle;
+	user-select: none;
+	flex-shrink: 0;
+}
+
+.tt-checkbox-icon svg {
+	width: var(--checkbox-size);
+	height: var(--checkbox-size);
+	display: block;
+}
+
+.tt-checkbox-icon:hover {
+	opacity: 0.7;
+}
+
+/* Reading view spacing */
+.markdown-preview-view .tt-checkbox-icon {
+	margin-inline-end: 0.35em;
+}
+
+/* Editor: match native checkbox alignment exactly */
+.markdown-source-view .tt-checkbox-icon {
+	position: relative;
+	top: -0.1em;
+	vertical-align: middle;
+	margin-inline-end: 0.15em;
+}
+
+/* Not Started — dashed outline, muted grey */
+.tt-checkbox-icon[data-task-state=" "] {
+	color: #A1A1A1;
+}
+
+/* Completed — filled checkmark, purple */
+.tt-checkbox-icon[data-task-state="x"],
+.tt-checkbox-icon[data-task-state="X"] {
+	color: #8E68F5;
+}
+
+/* In Progress — half-filled, amber */
+.tt-checkbox-icon[data-task-state="/"],
+.tt-checkbox-icon[data-task-state=">"] {
+	color: #BD8E37;
+}
+
+/* Abandoned — filled X, muted grey */
+.tt-checkbox-icon[data-task-state="-"] {
+	color: #A1A1A1;
+}
+
+/* Planned — solid outline, muted grey */
+.tt-checkbox-icon[data-task-state="?"],
+.tt-checkbox-icon[data-task-state="!"] {
+	color: #A1A1A1;
+}
+
+/* Strikethrough task text for Done and Cancelled — reading view */
+.task-list-item[data-task="x"] > :not(.task-list-item-checkbox):not(.tt-checkbox-icon),
+.task-list-item[data-task="X"] > :not(.task-list-item-checkbox):not(.tt-checkbox-icon),
+.task-list-item[data-task="-"] > :not(.task-list-item-checkbox):not(.tt-checkbox-icon) {
+	text-decoration: line-through;
+	opacity: 0.6;
+}
+
+/* Strikethrough for Cancelled in the editor (live preview + source mode) */
+.markdown-source-view.mod-cm6 .cm-line[data-task="-"] {
+	text-decoration: line-through;
+	opacity: 0.6;
+}
+
+/* Settings: narrow mark input */
+.checkbox-status-mark {
+	max-width: 3.5em !important;
+	text-align: center;
+}
+
+/* Settings: icon preview cell — match checkbox size */
+.checkbox-status-preview {
+	flex-shrink: 0;
+	width: var(--checkbox-size);
+	height: var(--checkbox-size);
+	pointer-events: none;
+	margin-inline-end: 0;
+}
+
+.checkbox-status-preview svg {
+	width: var(--checkbox-size);
+	height: var(--checkbox-size);
+	display: block;
+}
