@@ -52,6 +52,7 @@ export interface ChainDefinition {
 	currentStatusValue: string;
 	completedStatusValue: string;
 	readyStatusValue?: string;
+	inProgressStatusValue?: string;
 	// Per-chain item creation config (each falls back to global task settings if omitted)
 	itemFolder?: string;
 	itemTemplatePath?: string;
@@ -70,5 +71,5 @@ export interface ChainDefinition {
 export interface ChainItem {
 	file: TFile;
 	order: number;
-	role: "previous" | "current" | "ready" | "next";
+	role: "previous" | "current" | "ready" | "inProgress" | "next";
 }

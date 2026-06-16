@@ -56,6 +56,7 @@
 /* Shared dot base — all status circle nodes */
 .chain-sb-node--previous,
 .chain-sb-node--ready,
+.chain-sb-node--inProgress,
 .chain-sb-node--next {
 	display: flex;
 	align-items: center;
@@ -69,12 +70,14 @@
 
 .chain-sb-node--previous,
 .chain-sb-node--ready,
+.chain-sb-node--inProgress,
 .chain-sb-node--next {
 	transition: opacity 80ms ease;
 }
 
 .chain-sb-node--previous:hover,
 .chain-sb-node--ready:hover,
+.chain-sb-node--inProgress:hover,
 .chain-sb-node--next:hover {
 	opacity: 0.8;
 }
@@ -97,6 +100,21 @@
 	background-color: transparent;
 	border: 1.5px solid var(--text-faint);
 	color: var(--text-faint);
+}
+
+/* In progress task — half-filled circle */
+.chain-sb-node--inProgress {
+	background-color: transparent;
+	border: none;
+	color: var(--text-faint);
+	padding: 0;
+}
+
+.chain-sb-node--inProgress svg {
+	width: 100%;
+	height: 100%;
+	display: block;
+	overflow: visible;
 }
 
 /* Next task (Todo) — outline only */
@@ -162,6 +180,7 @@
 }
 
 .chain-sb-node--previous,
+.chain-sb-node--inProgress,
 .chain-sb-node--next {
 	cursor: grab;
 }
@@ -176,7 +195,8 @@
 
 /* Open file highlight — active nav color on future circles */
 .chain-sb-node--next.is-open,
-.chain-sb-node--ready.is-open {
+.chain-sb-node--ready.is-open,
+.chain-sb-node--inProgress.is-open {
 	border: 1.5px solid var(--nav-item-color-active);
 	color: var(--nav-item-color-active);
 	background-color: transparent;

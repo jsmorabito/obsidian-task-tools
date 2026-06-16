@@ -1,4 +1,4 @@
-import { App, MarkdownView, Menu, Modal, Notice, Plugin, Setting, TFile, setIcon, setTooltip } from "obsidian";
+import { App, Editor, MarkdownView, Menu, Modal, Notice, Plugin, Setting, TFile, setIcon, setTooltip } from "obsidian";
 
 /** Frontmatter key written when a task is marked done. */
 const COMPLETED_DATE_KEY = "completedDate";
@@ -15,6 +15,8 @@ import { ChainSuggestModal } from "./chainSuggestModal";
 import type { ChainDefinition, ChainItem, FrontmatterRule } from "./types";
 import { LinearManager } from "./linear/manager";
 import { LINEAR_VIEW_TYPE, LinearView } from "./linear/linearView";
+import { applyCheckboxIcons, DEFAULT_CHECKBOX_STATUSES, HALF_CIRCLE_SVG } from "./checkboxIcons";
+import { checkboxIconsEditorExtension } from "./checkboxIconsEditor";
 
 /** Simple modal that prompts for a filename and creates a blank .md file. */
 class NewBlankFileModal extends Modal {
@@ -195,6 +197,68 @@ export default class TaskToolsPlugin extends Plugin {
 		);
 
 		this.addSettingTab(new TaskToolsSettingTab(this.app, this));
+
+		// Checkbox icons — reading view post-processor
+		this.registerMarkdownPostProcessor((element, ctx) => {
+			if (!this.settings.enableCheckboxIcons) return;
+			applyCheckboxIcons(this, element, ctx);
+		});
+
+		// Checkbox icons — live preview / source editor extension
+		this.registerEditorExtension(
+			checkboxIconsEditorExtension(this)
+		);
+
+		// Command: cycle checkbox status through the custom status list.
+		// On a task line: advances to the next status in the configured cycle.
+		// On a plain bullet line: converts it to a task item  (- text → - [ ] text).
+		// Assign Cmd+Enter to this in Settings → Hotkeys to replace the default.
+		this.addCommand({
+			id: "cycle-task-checkbox-status",
+			name: "Cycle task checkbox status",
+			editorCallback: (editor: Editor) => {
+				const cursor = editor.getCursor();
+				const lineText = editor.getLine(cursor.line);
+				const TASK_RE = /^(\s*)((?:[-*+]|\d+[.)])\s)(\[(.)\])/;
+				const BULLET_RE = /^(\s*)((?:[-*+]|\d+[.)])\s)/;
+				const taskMatch = TASK_RE.exec(lineText);
+
+				const statuses = this.settings.checkboxStatuses ?? DEFAULT_CHECKBOX_STATUSES;
+				const marks = statuses.map((s) => s.mark);
+
+				if (taskMatch) {
+					// Already a task — advance to next status, or strip the checkbox
+					// back to a plain bullet after the last status.
+					// Replace from ch=0 so MatchDecorator's regex scan starts at the
+					// line beginning where the `^` anchor can match.
+					const mark = taskMatch[4]!;
+					const idx = marks.indexOf(mark);
+					const checkboxStart = taskMatch[1]!.length + taskMatch[2]!.length;
+					const checkboxEnd = checkboxStart + taskMatch[3]!.length;
+
+					if (idx === marks.length - 1) {
+						// Last status → remove checkbox and trailing space, back to bullet
+						const trailingSpace = lineText[checkboxEnd] === " " ? 1 : 0;
+						const newLine = lineText.substring(0, checkboxStart) + lineText.substring(checkboxEnd + trailingSpace);
+						editor.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: lineText.length });
+					} else {
+						const next = idx === -1 ? (marks[0] ?? " ") : (marks[idx + 1] ?? marks[0] ?? " ");
+						const newLine = lineText.substring(0, checkboxStart) + `[${next}]` + lineText.substring(checkboxEnd);
+						editor.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: lineText.length });
+					}
+				} else {
+					// Plain bullet → convert to first status in the cycle.
+					// Also replace from ch=0 so MatchDecorator sees the full line.
+					const bulletMatch = BULLET_RE.exec(lineText);
+					if (bulletMatch) {
+						const firstMark = marks[0] ?? " ";
+						const insertCh = bulletMatch[0]!.length;
+						const newLine = lineText.substring(0, insertCh) + `[${firstMark}] ` + lineText.substring(insertCh);
+						editor.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: lineText.length });
+					}
+				}
+			},
+		});
 
 		// ── Linear sync on open ──────────────────────────────────────────────
 		this.app.workspace.onLayoutReady(() => {
@@ -795,7 +859,7 @@ export default class TaskToolsPlugin extends Plugin {
 	async setItemStatus(
 		file: TFile,
 		chain: ChainDefinition,
-		newStatus: "done" | "todo" | "ready"
+		newStatus: "done" | "todo" | "ready" | "inProgress"
 	): Promise<void> {
 		const currentTask = this.findCurrentTask(chain);
 		if (!currentTask) return;
@@ -807,7 +871,7 @@ export default class TaskToolsPlugin extends Plugin {
 
 		const needsReposition =
 			(newStatus === "done" && targetItem.role !== "previous" && targetItem.role !== "current") ||
-			((newStatus === "todo" || newStatus === "ready") && targetItem.role === "previous");
+			((newStatus === "todo" || newStatus === "ready" || newStatus === "inProgress") && targetItem.role === "previous");
 
 		if (!needsReposition) {
 			// Just update the status in place
@@ -817,6 +881,9 @@ export default class TaskToolsPlugin extends Plugin {
 					front[COMPLETED_DATE_KEY] = (window as unknown as { moment: () => { format: (s: string) => string } }).moment().format("YYYY-MM-DD");
 				} else if (newStatus === "ready") {
 					front[chain.statusKey] = chain.readyStatusValue ?? "ready";
+					delete front[COMPLETED_DATE_KEY];
+				} else if (newStatus === "inProgress") {
+					front[chain.statusKey] = chain.inProgressStatusValue ?? "in-progress";
 					delete front[COMPLETED_DATE_KEY];
 				} else {
 					delete front[chain.statusKey];
@@ -856,6 +923,9 @@ export default class TaskToolsPlugin extends Plugin {
 						front[COMPLETED_DATE_KEY] = (window as unknown as { moment: () => { format: (s: string) => string } }).moment().format("YYYY-MM-DD");
 					} else if (newStatus === "ready") {
 						front[chain.statusKey] = readyVal;
+						delete front[COMPLETED_DATE_KEY];
+					} else if (newStatus === "inProgress") {
+						front[chain.statusKey] = chain.inProgressStatusValue ?? "in-progress";
 						delete front[COMPLETED_DATE_KEY];
 					} else {
 						delete front[chain.statusKey];
@@ -926,14 +996,17 @@ export default class TaskToolsPlugin extends Plugin {
 
 			const isCurrent = fm[chain.statusKey] === chain.currentStatusValue;
 			const isReady = fm[chain.statusKey] === (chain.readyStatusValue ?? "ready");
+			const isInProgress = fm[chain.statusKey] === (chain.inProgressStatusValue ?? "in-progress");
 
-			let role: "previous" | "current" | "ready" | "next";
+			let role: "previous" | "current" | "ready" | "inProgress" | "next";
 			if (isCurrent) {
 				role = "current";
 			} else if (fileOrder < currentOrder) {
 				role = "previous";
 			} else if (isReady) {
 				role = "ready";
+			} else if (isInProgress) {
+				role = "inProgress";
 			} else {
 				role = "next";
 			}
@@ -1296,6 +1369,7 @@ export default class TaskToolsPlugin extends Plugin {
 				});
 				if (isOpen) openFileNode = node;
 				if (item.role === "previous" || item.role === "ready") setIcon(node, "check");
+				if (item.role === "inProgress") node.innerHTML = HALF_CIRCLE_SVG;
 				setTooltip(node, item.file.basename, { delay: 0, placement: "top" });
 
 				node.draggable = true;
@@ -1379,6 +1453,13 @@ export default class TaskToolsPlugin extends Plugin {
 						menu.addItem((mi) =>
 							mi.setTitle("Mark as todo").setIcon("circle").onClick(async () => {
 								await this.setItemStatus(item.file, chain, "todo");
+							})
+						);
+					}
+					if (item.role !== "inProgress" && item.role !== "current") {
+						menu.addItem((mi) =>
+							mi.setTitle("Mark as in progress").setIcon("circle-half").onClick(async () => {
+								await this.setItemStatus(item.file, chain, "inProgress");
 							})
 						);
 					}
