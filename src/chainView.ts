@@ -1,6 +1,7 @@
 import { FuzzySuggestModal, ItemView, MarkdownView, Menu, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import TaskToolsPlugin from "./main";
 import type { ChainDefinition, ChainItem } from "./types";
+import { HALF_CIRCLE_SVG } from "./checkboxIcons";
 
 export class QuickAddFileModal extends FuzzySuggestModal<TFile> {
 	private plugin: TaskToolsPlugin;
@@ -379,6 +380,7 @@ export class ChainView extends ItemView {
 					cls: `chain-view-list-dot chain-sb-node--${item.role}${isOpen ? " is-open" : ""}`,
 				});
 				if (item.role === "previous" || item.role === "ready") setIcon(dot, "check");
+				if (item.role === "inProgress") dot.innerHTML = HALF_CIRCLE_SVG;
 
 				// Name
 				row.createEl("span", {
@@ -481,6 +483,14 @@ export class ChainView extends ItemView {
 						);
 					}
 
+					if (item.role !== "inProgress" && item.role !== "current") {
+						menu.addItem((mi) =>
+							mi.setTitle("Mark as in progress").setIcon("circle-half").onClick(async () => {
+								await this.plugin.setItemStatus(item.file, chain, "inProgress");
+							})
+						);
+					}
+
 					menu.addItem((mi) =>
 						mi.setTitle("Open file").setIcon("file-open").onClick(open)
 					);
@@ -516,7 +526,7 @@ export class ChainView extends ItemView {
 			await this.app.workspace.getLeaf(false).openFile(item.file);
 		});
 
-		const roleLabel = item.role === "previous" ? "Done" : item.role === "current" ? "Current" : item.role === "ready" ? "Ready" : "Todo";
+		const roleLabel = item.role === "previous" ? "Done" : item.role === "current" ? "Current" : item.role === "ready" ? "Ready" : item.role === "inProgress" ? "In Progress" : "Todo";
 		detailEl.createEl("span", {
 			text: roleLabel,
 			cls: "chain-view-item__role",

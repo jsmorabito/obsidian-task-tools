@@ -1,5 +1,6 @@
 import { AbstractInputSuggest, App, PluginSettingTab, Setting, TFile } from "obsidian";
 import type { ChainDefinition, FrontmatterRule, LinearWorkspaceConfig } from "./types";
+import { buildIconEl, CheckboxStatus, DEFAULT_CHECKBOX_STATUSES } from "./checkboxIcons";
 import TaskToolsPlugin from "./main";
 
 export type StatusBarDisplayMode = "filenames" | "dots";
@@ -22,6 +23,9 @@ export interface TaskToolsSettings {
 	linearSyncOnOpen: boolean;
 	linearSyncIntervalMinutes: number; // 0 = disabled
 	linearIssueFolder: string; // folder where imported issues are created
+	// Checkbox icons
+	enableCheckboxIcons: boolean;
+	checkboxStatuses: CheckboxStatus[];
 }
 
 /** Convert a display name to a lowercase kebab-case slug, e.g. "My Chain" → "my-chain". */
@@ -62,6 +66,8 @@ export const DEFAULT_SETTINGS: TaskToolsSettings = {
 	linearSyncOnOpen: true,
 	linearSyncIntervalMinutes: 0,
 	linearIssueFolder: "Linear",
+	enableCheckboxIcons: false,
+	checkboxStatuses: DEFAULT_CHECKBOX_STATUSES,
 };
 
 class FileSuggest extends AbstractInputSuggest<TFile> {
@@ -228,6 +234,28 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 				});
 			});
 
+		// ── Checkbox icons ───────────────────────────────────────────────────
+		new Setting(containerEl).setName("Checkbox icons").setHeading();
+		containerEl.createEl("p", {
+			text: "Replace standard checkboxes in reading view with styled icon characters. Click an icon to cycle through statuses.",
+			cls: "setting-item-description",
+		});
+
+		new Setting(containerEl)
+			.setName("Enable checkbox icons")
+			.setDesc("Show custom icon characters instead of native checkboxes in reading view.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.enableCheckboxIcons).onChange(async (value) => {
+					this.plugin.settings.enableCheckboxIcons = value;
+					await this.plugin.saveSettings();
+					this.refresh();
+				})
+			);
+
+		if (this.plugin.settings.enableCheckboxIcons) {
+			this.renderCheckboxStatusList(containerEl);
+		}
+
 		// ── Chain schemas ────────────────────────────────────────────────────
 		new Setting(containerEl).setName("Chain schemas").setHeading();
 		containerEl.createEl("p", {
@@ -348,6 +376,7 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 		make("Status key", "Frontmatter key for the task's status within this chain.", "statusKey", "chain-status");
 		make("Current status value", "The value that marks a task as current in this chain.", "currentStatusValue", "current");
 		make("Completed status value", "The value written to a task's status key when it is marked done.", "completedStatusValue", "done");
+		make("In progress status value", "Optional. The value that marks a task as in progress (shows a half-filled circle). Leave empty to disable.", "inProgressStatusValue", "in-progress");
 
 		section.createEl("p", {
 			text: "Item creation (optional) — overrides global task settings when creating new items via this chain.",
@@ -514,6 +543,83 @@ export class TaskToolsSettingTab extends PluginSettingTab {
 				await this.plugin.saveSettings();
 				refresh();
 			}
+		});
+	}
+
+	// ── Checkbox status list ─────────────────────────────────────────────────
+
+	private renderCheckboxStatusList(containerEl: HTMLElement): void {
+		const wrapper = containerEl.createDiv({ cls: "chain-rule-list checkbox-status-list" });
+		wrapper.createEl("p", { text: "Status cycle", cls: "setting-item-name" });
+		wrapper.createEl("p", {
+			text: "Each row is one step in the click cycle. Mark is the character inside [ ]. For custom marks without a built-in icon, set a fallback text character in the icon field.",
+			cls: "setting-item-description",
+		});
+
+		const listEl = wrapper.createDiv({ cls: "chain-rule-rows" });
+
+		const refresh = () => {
+			listEl.empty();
+			const statuses = this.plugin.settings.checkboxStatuses;
+			statuses.forEach((status, idx) => {
+				const row = listEl.createDiv({ cls: "chain-rule-row checkbox-status-row" });
+
+				// Icon preview (rendered SVG or fallback text — not an input)
+				const preview = buildIconEl(status.mark, statuses, "checkbox-status-preview");
+				row.appendChild(preview);
+
+				// Mark input
+				const markInput = row.createEl("input", {
+					type: "text",
+					placeholder: "mark",
+					cls: "chain-rule-input checkbox-status-mark",
+				});
+				markInput.value = status.mark;
+				markInput.addEventListener("change", async () => {
+					this.plugin.settings.checkboxStatuses[idx]!.mark = markInput.value;
+					await this.plugin.saveSettings();
+					// Refresh so the icon preview updates to match the new mark
+					refresh();
+				});
+
+				// Label input
+				const labelInput = row.createEl("input", {
+					type: "text",
+					placeholder: "label",
+					cls: "chain-rule-input",
+				});
+				labelInput.value = status.label;
+				labelInput.addEventListener("change", async () => {
+					this.plugin.settings.checkboxStatuses[idx]!.label = labelInput.value;
+					await this.plugin.saveSettings();
+				});
+
+				// Remove button
+				const removeBtn = row.createEl("button", { text: "×", cls: "chain-rule-remove" });
+				removeBtn.setAttribute("aria-label", "Remove status");
+				removeBtn.addEventListener("click", async () => {
+					this.plugin.settings.checkboxStatuses.splice(idx, 1);
+					await this.plugin.saveSettings();
+					refresh();
+				});
+			});
+		};
+
+		refresh();
+
+		const addBtn = wrapper.createEl("button", { text: "+ add status", cls: "chain-rule-add" });
+		addBtn.addEventListener("click", async () => {
+			this.plugin.settings.checkboxStatuses.push({ mark: "", icon: "", label: "" });
+			await this.plugin.saveSettings();
+			refresh();
+		});
+
+		const resetBtn = wrapper.createEl("button", { text: "Reset to defaults", cls: "chain-rule-add" });
+		resetBtn.style.marginLeft = "8px";
+		resetBtn.addEventListener("click", async () => {
+			this.plugin.settings.checkboxStatuses = [...DEFAULT_CHECKBOX_STATUSES];
+			await this.plugin.saveSettings();
+			refresh();
 		});
 	}
 
