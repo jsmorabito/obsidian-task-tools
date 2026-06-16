@@ -45,7 +45,7 @@ export class LinearView extends ItemView {
 
 	getViewType(): string { return LINEAR_VIEW_TYPE; }
 	getDisplayText(): string { return "Linear"; }
-	getIcon(): string { return "external-link"; }
+	getIcon(): string { return "linear-logo"; }
 
 	async onOpen(): Promise<void> {
 		// Pick the first configured workspace by default
